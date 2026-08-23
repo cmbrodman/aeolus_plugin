@@ -355,7 +355,7 @@ void Division::noteOn(int note, int midiChannel)
     if (hasBeenTriggered())
         return;
 
-    if (!isForMIDIChannel(midiChannel))
+    if (midiChannel != 0 && !isForMIDIChannel(midiChannel))
         return;
 
     _triggerFlag = true;
@@ -372,6 +372,26 @@ void Division::noteOn(int note, int midiChannel)
     for (auto& link : _linkedDivisions) {
         if (link.enabled) {
             link.division->noteOn(note, 0);
+        }
+    }
+
+ // === Bass Coupler logic ===
+    if (_bassCouplerEnabled && midiChannel != 0)
+    {
+        if (_bassCouplerNote < 0 || note < _bassCouplerNote)
+        {
+            if (auto* pedal = _engine.getDivisionByName("Pedal"))
+            {
+                if (_bassCouplerNote >= 0)
+                {
+                    pedal->noteOff(_bassCouplerNote, 0);
+                    pedal->forceKeyState(_bassCouplerNote, false);
+                }
+
+                pedal->noteOn(note, 0);
+                pedal->forceKeyState(note, true);
+                _bassCouplerNote = note;
+            }
         }
     }
 }
@@ -404,6 +424,21 @@ void Division::noteOff(int note, int midiChannel)
     for (auto& link : _linkedDivisions) {
         if (link.enabled) {
             link.division->noteOff(note, 0);
+        }
+    }
+
+// === Bass Coupler logic ===
+    if (_bassCouplerEnabled && midiChannel != 0)
+    {
+        if (note == _bassCouplerNote)
+        {
+            if (auto* pedal = _engine.getDivisionByName("Pedal"))
+            {
+                pedal->noteOff(_bassCouplerNote, 0);
+                pedal->forceKeyState(_bassCouplerNote, false);
+            }
+
+            _bassCouplerNote = -1;
         }
     }
 }
@@ -698,6 +733,31 @@ bool Division::isAlreadyVoiced(int stopIndex, int note)
     }
 
     return false;
+}
+
+void Division::setBassCouplerEnabled(bool ena)
+{
+    if (_bassCouplerEnabled == ena)
+        return;
+
+    _bassCouplerEnabled = ena;
+
+    // If we are turning the coupler off, release any note we were sending to the pedal
+    if (!_bassCouplerEnabled && _bassCouplerNote >= 0)
+    {
+        if (auto* pedal = _engine.getDivisionByName("Pedal"))
+            pedal->noteOff(_bassCouplerNote, 0);
+
+        _bassCouplerNote = -1;
+    }
+}
+
+void Division::forceKeyState(int note, bool on)
+{
+    if (on)
+        _keysState.set(note);
+    else
+        _keysState.reset(note);
 }
 
 AEOLUS_NAMESPACE_END

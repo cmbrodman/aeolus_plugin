@@ -167,6 +167,10 @@ public:
      */
     void clearTriggerFlag() noexcept { _triggerFlag = false; }
 
+    void setBassCouplerEnabled(bool ena);
+    bool isBassCouplerEnabled() const noexcept { return _bassCouplerEnabled; }
+    void forceKeyState(int note, bool on);   // ← add this line
+
 private:
 
     /**
@@ -226,6 +230,10 @@ private:
     bool _triggerFlag;
 
     Level _volumeLevel;
+
+    // Bass coupler support
+    bool _bassCouplerEnabled = false;
+    int  _bassCouplerNote = -1;   // -1 means no note currently sent to pedal
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Division)
 };

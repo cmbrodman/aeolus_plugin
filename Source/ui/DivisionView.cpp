@@ -64,6 +64,24 @@ DivisionView::DivisionView(aeolus::Division* division)
         _gradientColour[0] = Colour(0x31, 0x2F, 0x2F);
         _gradientColour[1] = Colour(0x1F, 0x1F, 0x1F);
     }
+
+    // Bass Coupler button (only for manuals, not for Pedal)
+    if (_division->getName() != "Pedal")
+    {
+        _bassCouplerButton.setButtonText("Bass");
+        _bassCouplerButton.setClickingTogglesState(true);
+        _bassCouplerButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0x33, 0x33, 0x33));
+        _bassCouplerButton.setColour(juce::TextButton::buttonOnColourId, juce::Colours::darkorange);
+        _bassCouplerButton.setColour(juce::TextButton::textColourOffId, juce::Colour(0x99, 0x99, 0x99));
+        _bassCouplerButton.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+
+        _bassCouplerButton.onClick = [this]()
+        {
+            _division->setBassCouplerEnabled(_bassCouplerButton.getToggleState());
+        };
+
+        addAndMakeVisible(_bassCouplerButton);
+    }
 }
 
 void DivisionView::update()
@@ -79,6 +97,9 @@ void DivisionView::update()
         const bool enabled { _division->isLinkEnabled(linkIdx++) };
         b->setToggleState(enabled, juce::dontSendNotification);
     }
+
+    if (_division->getName() != "Pedal")
+        _bassCouplerButton.setToggleState(_division->isBassCouplerEnabled(), juce::dontSendNotification);
 }
 
 void DivisionView::cancelAllStops()
@@ -159,6 +180,21 @@ void DivisionView::resized()
     }
 
     _controlPanel.setBounds(getWidth() - controlPanelWidth, 0, controlPanelWidth, getHeight());
+
+       if (_division->getName() != "Pedal")
+    {
+        // Match the width of the Tremulant button (control panel is 130 px wide)
+        const int controlPanelWidth = 130;
+        const int margin = 10;
+        const int buttonWidth = controlPanelWidth - 3 * margin - 15;   // same usable width as Tremulant
+
+        _bassCouplerButton.setBounds(
+            getWidth() - controlPanelWidth + margin + 25,  // left edge aligned with Tremulant
+            55,                                            // just below Tremulant
+            buttonWidth,
+            25                                             // height
+        );
+    }
 }
 
 void DivisionView::paint(Graphics& g)
