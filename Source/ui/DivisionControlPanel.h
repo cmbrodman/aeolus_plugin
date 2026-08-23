@@ -21,7 +21,6 @@
 
 #include "aeolus/globals.h"
 #include "aeolus/division.h"
-#include "ui/MidiChannelsComponent.h"
 #include "ui/ParameterSlider.h"
 #include "ui/LevelIndicator.h"
 
@@ -43,7 +42,6 @@ private:
     aeolus::Division* _division;
 
     juce::TextButton _tremulantButton;
-    ui::MidiChannelsComponent _midiChannels;
     ui::ParameterSlider _gainSlider;
     ui::LevelIndicator _volumeLevelL;
     ui::LevelIndicator _volumeLevelR;

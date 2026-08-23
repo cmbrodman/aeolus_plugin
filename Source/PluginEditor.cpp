@@ -22,6 +22,7 @@
 #include "ui/GlobalTuningComponent.h"
 #include "ui/FxComponent.h"
 #include "ui/SettingsComponent.h"
+#include "ui/MidiSettingsComponent.h"
 
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
@@ -57,10 +58,6 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
     , _mtsDisconnectedLabel{{}, "no MTS master found"}
     , _panicButton{"PANIC"}
     , _cancelButton{"Cancel"}
-    , _midiControlChannelLabel{{}, {"Control"}}
-    , _midiControlChannels{}
-    , _midiSwellChannelLabel{{}, {"Swell"}}
-    , _midiSwellChannels{}
 {
     auto* g = aeolus::EngineGlobal::getInstance();
 
@@ -178,33 +175,46 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
         _settingsButton.setMouseCursor(MouseCursor::PointingHandCursor);
     }
 
-    _settingsButton.onClick = [this] {
-        auto content = std::make_unique<ui::SettingsComponent>();
-        content->setSize(240, 120);
-        auto* contentPtr = content.get();
+        _settingsButton.onClick = [this] {
+        PopupMenu menu;
+        menu.addItem(1, "UI Scaling");
+        menu.addItem(2, "MIDI Settings");
 
-        auto& box = CallOutBox::launchAsynchronously(std::move(content), _settingsButton.getBounds(), this);
-        contentPtr->onCancel = [&box] { box.dismiss(); };
-        contentPtr->onOk = [&box, contentPtr] {
-            auto* g = aeolus::EngineGlobal::getInstance();
-            const float uiScalingFactor = contentPtr->getUIScalingFactor();
-            const bool uiScalingFactorChanged = (g->getUIScalingFactor() != uiScalingFactor);
+        menu.showMenuAsync(PopupMenu::Options().withTargetComponent(_settingsButton),
+            [this](int result)
+            {
+                if (result == 1)
+                {
+                    auto content = std::make_unique<ui::SettingsComponent>();
+                    content->setSize(240, 120);
+                    auto* contentPtr = content.get();
 
-            if (uiScalingFactorChanged) {
-                g->setUIScalingFactor(uiScalingFactor);
-                g->saveSettings();
-            }
+                    auto& box = CallOutBox::launchAsynchronously(std::move(content), _settingsButton.getBounds(), this);
+                    contentPtr->onCancel = [&box] { box.dismiss(); };
+                    contentPtr->onOk = [&box, contentPtr] {
+                        auto* g = aeolus::EngineGlobal::getInstance();
+                        const float uiScalingFactor = contentPtr->getUIScalingFactor();
+                        if (g->getUIScalingFactor() != uiScalingFactor) {
+                            g->setUIScalingFactor(uiScalingFactor);
+                            g->saveSettings();
+                        }
+                        box.dismiss();
+                    };
+                }
+                else if (result == 2)
+                {
+                                       // Device manager is only available in standalone; pass nullptr in plugin hosts
+                    juce::AudioDeviceManager* dm = nullptr;
 
-            box.dismiss();
-        };
+                    auto content = std::make_unique<ui::MidiSettingsComponent>(_audioProcessor.getEngine(), dm);
+                    content->setSize(420, 420);
+                    auto* contentPtr = content.get();
+
+                    auto& box = CallOutBox::launchAsynchronously(std::move(content), _settingsButton.getBounds(), this);
+                    contentPtr->onClose = [&box] { box.dismiss(); };
+                }
+            });
     };
-
-    {
-        auto normalIcon = loadSVG(BinaryData::fx_svg, BinaryData::fx_svgSize);
-        auto hoverIcon = loadSVG(BinaryData::fxhover_svg, BinaryData::fxhover_svgSize);
-        _fxButton.setImages(normalIcon.get(), hoverIcon.get());
-        _fxButton.setMouseCursor(MouseCursor::PointingHandCursor);
-    }
 
     _fxButton.onClick = [this] {
         auto& params{ _audioProcessor.getParametersContainer() };
@@ -257,35 +267,6 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
     _midiKeyboard.setScrollButtonsVisible(false);
     _midiKeyboard.setAvailableRange(21, 108);
     addAndMakeVisible(_midiKeyboard);
-
-    _midiControlChannelLabel.setColour(Label::textColourId, Colour(0x99, 0x99, 0x99));
-    _midiSwellChannelLabel.setColour(Label::textColourId, Colour(0x99, 0x99, 0x99));
-
-    addAndMakeVisible(_midiControlChannelLabel);
-    addAndMakeVisible(_midiSwellChannelLabel);
-
-    addAndMakeVisible(_midiControlChannels);
-    addAndMakeVisible(_midiSwellChannels);
-
-    _midiControlChannels.currentChannelsMaskProvider = [this]() -> int {
-            return _audioProcessor.getEngine().getMIDIControlChannelsMask();
-        };
-
-    _midiControlChannels.onChannelsSelectionChanged = [this](int mask) {
-            _audioProcessor.getEngine().setMIDIControlChannelsMask(mask);
-        };
-
-    _midiControlChannels.updateLabel();
-
-    _midiSwellChannels.currentChannelsMaskProvider = [this]() -> int {
-            return _audioProcessor.getEngine().getMIDISwellChannelsMask();
-        };
-
-    _midiSwellChannels.onChannelsSelectionChanged = [this](int mask) {
-        _audioProcessor.getEngine().setMIDISwellChannelsMask(mask);
-        };
-
-    _midiSwellChannels.updateLabel();
 
 
     // Overlay and sequencer must go on the very top
@@ -392,11 +373,6 @@ void AeolusAudioProcessorEditor::resized()
 
     int x = _midiKeyboard.getRight() + (getWidth() - _midiKeyboard.getRight() - 140) / 2;
 
-    _midiControlChannelLabel.setBounds(x, _midiKeyboard.getY() + 5, 60, 24);
-    _midiControlChannels.setBounds(_midiControlChannelLabel.getRight() + 5, _midiControlChannelLabel.getY(), 100, 24);
-
-    _midiSwellChannelLabel.setBounds(x, _midiControlChannelLabel.getBottom() + 5, 60, 24);
-    _midiSwellChannels.setBounds(_midiSwellChannelLabel.getRight() + 5, _midiSwellChannelLabel.getY(), 100, 24);
 }
 
 void AeolusAudioProcessorEditor::timerCallback()

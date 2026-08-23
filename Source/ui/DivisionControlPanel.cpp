@@ -27,17 +27,11 @@ namespace ui {
 DivisionControlPanel::DivisionControlPanel(aeolus::Division* division)
     : _division{ division }
     , _tremulantButton{ "Tremulant" }
-    , _midiChannels{}
     , _gainSlider{ *division->getParamGain() }
     , _volumeLevelL{ division->volumeLevel().left, LevelIndicator::Orientation::Vertical }
     , _volumeLevelR{ division->volumeLevel().right, LevelIndicator::Orientation::Vertical }
 {
     jassert(division);
-
-    addAndMakeVisible(_midiChannels);
-    _midiChannels.currentChannelsMaskProvider = [this]() -> int { return _division->getMIDIChannelsMask(); };
-    _midiChannels.onChannelsSelectionChanged = [this](int mask) { _division->setMIDIChannelsMask(mask); };
-    _midiChannels.updateLabel();
 
     _tremulantButton.setClickingTogglesState(true);
     _tremulantButton.setColour(TextButton::buttonColourId, Colour(0x66, 0x66, 0x66));
@@ -81,8 +75,6 @@ void DivisionControlPanel::resized()
     int offset = _gainSlider.getRight();
    
     _tremulantButton.setBounds(offset + margin, 3 * margin, bounds.getRight() - 3 * margin - offset, 35);
-
-    _midiChannels.setBounds(offset, bounds.getHeight() - 24 - 3 * margin, itemWidth, 24);
 }
 
 void DivisionControlPanel::paint(juce::Graphics& g)

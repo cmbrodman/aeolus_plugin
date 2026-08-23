@@ -107,14 +107,6 @@ private:
     /// Organ cancel button
     juce::TextButton _cancelButton;
 
-    /// MIDI control channel selection
-    juce::Label _midiControlChannelLabel;
-    ui::MidiChannelsComponent _midiControlChannels;
-
-    /// MIDI swell channel selection
-    juce::Label _midiSwellChannelLabel;
-    ui::MidiChannelsComponent _midiSwellChannels;
-
     float _uiScalingPercent{};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AeolusAudioProcessorEditor)
