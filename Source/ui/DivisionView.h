@@ -60,6 +60,7 @@ private:
     juce::TextButton _cancelButton;         ///< Disable all stops.
     juce::OwnedArray<juce::TextButton> _linkButtons;
     juce::TextButton _bassCouplerButton;
+    juce::TextButton _panicButton;
     DivisionControlPanel _controlPanel;
     juce::OwnedArray<StopButton> _stopButtons;
 

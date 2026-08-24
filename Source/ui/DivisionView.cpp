@@ -56,7 +56,7 @@ DivisionView::DivisionView(aeolus::Division* division)
     populateStopButtons();
     populateLinkButtons();
 
-    // Shade swell-enabled divisions differently
+            // Shade swell-enabled divisions differently
     if (_division->hasSwell()) {
         _gradientColour[0] = Colour(0x40, 0x31, 0x2F);
         _gradientColour[1] = Colour(0x24, 0x1F, 0x1F);
@@ -65,7 +65,7 @@ DivisionView::DivisionView(aeolus::Division* division)
         _gradientColour[1] = Colour(0x1F, 0x1F, 0x1F);
     }
 
-    // Bass Coupler button (only for manuals, not for Pedal)
+            // Bass Coupler button (only for manuals, not for Pedal)
     if (_division->getName() != "Pedal")
     {
         _bassCouplerButton.setButtonText("Bass");
@@ -81,6 +81,22 @@ DivisionView::DivisionView(aeolus::Division* division)
         };
 
         addAndMakeVisible(_bassCouplerButton);
+    }
+            // Panic button only on Pedal division
+    if (_division->getName() == "Pedal")
+    {
+        _panicButton.setButtonText("PANIC");
+        _panicButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
+        _panicButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+        _panicButton.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+
+        _panicButton.onClick = [this]()
+        {
+            _division->getEngine().allNotesOff();
+            // If your Engine uses a different panic API, use that instead
+        };
+
+        addAndMakeVisible(_panicButton);
     }
 }
 
@@ -137,63 +153,98 @@ constexpr int controlPanelWidth = 130;
 
 int DivisionView::getEstimatedHeightForWidth(int width) const
 {
-    const int nButtonsInRow = (width - controlPanelWidth) / buttonSize;
-    const int nRows = _stopButtons.size() / nButtonsInRow + (_stopButtons.size() % nButtonsInRow > 0 ? 1 : 0);
+    constexpr int leftCouplerStrip = 110;
+    const int usable = width - controlPanelWidth - leftCouplerStrip;
+    const int nButtonsInRow = juce::jmax(1, usable / buttonSize);
+    const int nRows = _stopButtons.size() / nButtonsInRow
+                    + (_stopButtons.size() % nButtonsInRow > 0 ? 1 : 0);
     return nRows * buttonSize + paddingTop + paddingBottom;
 }
 
 void DivisionView::resized()
 {
-    _nameLabel.setBounds(0, 0, getWidth() - controlPanelWidth, paddingTop);
+    constexpr int controlPanelWidth = 130;
+    constexpr int leftCouplerStrip  = 110;
+    constexpr int margin = 10;
+    constexpr int couplerBtnW = leftCouplerStrip - 2 * margin;
+    constexpr int couplerBtnH = 25;
 
+    // Division name across the top (between the two side strips)
+    _nameLabel.setBounds(leftCouplerStrip, 0,
+                         getWidth() - controlPanelWidth - leftCouplerStrip,
+                         paddingTop);
+
+    // Cancel button near the right panel
     _cancelButton.setBounds(getWidth() - controlPanelWidth - 50, 10, 40, 15);
 
-    int x = 10;
-
-    for (auto* linkButton : _linkButtons) {
-        linkButton->setBounds(x, 10, 40, 15);
-        x += 50;
+    // --- Left coupler buttons ---
+    {
+        int y = 35;
+        for (auto* linkButton : _linkButtons)
+        {
+            linkButton->setBounds(margin, y, couplerBtnW, couplerBtnH);
+            y += couplerBtnH + 4;
+        }
     }
 
-    FlexBox fbox;
-    fbox.flexWrap = FlexBox::Wrap::wrap;
-    fbox.justifyContent = FlexBox::JustifyContent::center;
-    fbox.alignContent = FlexBox::AlignContent::center;
-
-    for (auto* button : _stopButtons)
-        fbox.items.add(FlexItem(*button).withWidth(buttonSize).withHeight(buttonSize));
-
-    auto bounds = getLocalBounds();
-    bounds.setTop(paddingTop);
-    bounds.setBottom(bounds.getHeight() - paddingTop - paddingBottom);
-    bounds.setWidth(bounds.getWidth() - controlPanelWidth);
-
-    fbox.performLayout(bounds.toFloat());
-
-    // For some reason the performLayout ignores the target rectangle
-    // top and left coordinates, so we reposition all the buttons to respect
-    // the padding.
-    for (auto* button : _stopButtons) {
-        auto b = button->getBounds();
-        b.setY(b.getY() + paddingTop);
-        button->setBounds(b);
-    }
-
+    // --- Right control panel ---
     _controlPanel.setBounds(getWidth() - controlPanelWidth, 0, controlPanelWidth, getHeight());
 
-       if (_division->getName() != "Pedal")
+    // --- Bass button (manuals only) ---
+    if (_division->getName() != "Pedal")
     {
-        // Match the width of the Tremulant button (control panel is 130 px wide)
-        const int controlPanelWidth = 130;
-        const int margin = 10;
-        const int buttonWidth = controlPanelWidth - 3 * margin - 15;   // same usable width as Tremulant
-
+        const int buttonWidth = controlPanelWidth - 3 * margin - 15;
         _bassCouplerButton.setBounds(
-            getWidth() - controlPanelWidth + margin + 25,  // left edge aligned with Tremulant
-            55,                                            // just below Tremulant
+            getWidth() - controlPanelWidth + margin + 25,
+            55,
             buttonWidth,
-            25                                             // height
+            25
         );
+    }
+
+    if (_division->getName() == "Pedal")
+    {
+        const int margin = 10;
+        const int buttonWidth = controlPanelWidth - 3 * margin - 15; // same as Bass/Tremulant
+        const int buttonHeight = 50; // double the Bass height (25)
+
+        _panicButton.setBounds(
+            getWidth() - controlPanelWidth + margin + 25,
+            55,                 // same vertical band Bass used on manuals
+            buttonWidth,
+            buttonHeight
+        );
+    }
+
+    // --- Stop buttons: middle strip only (no FlexBox) ---
+    const int midLeft  = leftCouplerStrip;
+    const int midRight = getWidth() - controlPanelWidth;
+    const int midWidth = midRight - midLeft;
+    const int midTop   = paddingTop;
+
+    if (midWidth > buttonSize && _stopButtons.size() > 0)
+    {
+        const int nButtonsInRow = juce::jmax(1, midWidth / buttonSize);
+        int index = 0;
+
+        for (auto* button : _stopButtons)
+        {
+            const int row = index / nButtonsInRow;
+            const int col = index % nButtonsInRow;
+
+            const int buttonsInThisRow = juce::jmin(nButtonsInRow,
+                                                    _stopButtons.size() - row * nButtonsInRow);
+            const int rowWidth  = buttonsInThisRow * buttonSize;
+            const int rowStartX = midLeft + (midWidth - rowWidth) / 2;
+
+            button->setBounds(
+                rowStartX + col * buttonSize,
+                midTop + row * buttonSize,
+                buttonSize,
+                buttonSize
+            );
+            ++index;
+        }
     }
 }
 
@@ -207,6 +258,8 @@ void DivisionView::paint(Graphics& g)
     };
     g.setGradientFill(grad);
     g.fillRect(getLocalBounds());
+    g.setColour(Colour(0x1F, 0x1F, 0x1F));
+    g.fillRect(0, 0, 110, getHeight());   // left coupler strip
 }
 
 void DivisionView::populateStopButtons()

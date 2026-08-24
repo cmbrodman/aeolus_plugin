@@ -101,9 +101,6 @@ private:
     juce::Label _mtsConnectedLabel;
     juce::Label _mtsDisconnectedLabel;
 
-    /// Kill all active voices button
-    juce::TextButton _panicButton;
-
     /// Organ cancel button
     juce::TextButton _cancelButton;
 

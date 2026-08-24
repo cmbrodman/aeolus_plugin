@@ -56,7 +56,6 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
     , _fxButton{"fxButton", DrawableButton::ImageFitted}
     , _mtsConnectedLabel{{}, "connected to MTS master"}
     , _mtsDisconnectedLabel{{}, "no MTS master found"}
-    , _panicButton{"PANIC"}
     , _cancelButton{"Cancel"}
 {
     auto* g = aeolus::EngineGlobal::getInstance();
@@ -241,13 +240,6 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
     _mtsConnectedLabel.setColour(Label::textColourId, Colour(204, 255, 204));
     _mtsDisconnectedLabel.setColour(Label::textColourId, Colour(255, 204, 204));
 
-    _panicButton.setColour(TextButton::textColourOffId, Colour(0xFF, 0xFF, 0xFF));
-    _panicButton.setColour(TextButton::buttonColourId, Colour(0xCC, 0x33, 0x00));
-    addAndMakeVisible(_panicButton);
-    _panicButton.onClick = [this] {
-        _audioProcessor.panic();
-    };
-
     _cancelButton.onClick = [this]() {
         for (auto* divisionView : _divisionViews) {
             divisionView->cancelAllStops();
@@ -342,8 +334,6 @@ void AeolusAudioProcessorEditor::resized()
 
     _mtsConnectedLabel.setBounds(_settingsButton.getRight() + 40, margin, 160, 20);
     _mtsDisconnectedLabel.setBounds(_mtsConnectedLabel.getBounds());
-
-    _panicButton.setBounds(getWidth() - 90, margin, 50, 20);
 
     constexpr int T = margin * 2 + 20;
     constexpr int sequencerHeight = 26;
