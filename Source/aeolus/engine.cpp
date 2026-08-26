@@ -859,6 +859,21 @@ void Engine::setPersistentState(const var& state)
 
 void Engine::populateDivisions()
 {
+    ensureOrganDataFiles();
+
+    const auto configFile = getCustomOrganConfigFile();
+
+    if (configFile.existsAsFile()) {
+        FileInputStream stream(configFile);
+        loadDivisionsFromConfig(stream);
+    } else {
+        MemoryInputStream stream(BinaryData::default_organ_json,
+                                 BinaryData::default_organ_jsonSize, false);
+        loadDivisionsFromConfig(stream);
+    }
+}
+
+{
     const auto configFile = getCustomOrganConfigFile();
 
     if (configFile.exists()) {

@@ -133,10 +133,16 @@ namespace deprecated {
 
 //==============================================================================
 
-/// Returns a location of a custom organ configuration file.
-/// Currently it's <My Documents>/Aeolus/organ_config.json
-/// @note This function does not check the file exists.
+/// Directory used for organ_config.json / organ_state.json.
+/// Preference: next to the executable, else Documents/Aeolus.
+/// Creates Documents/Aeolus and default files when nothing exists yet.
+juce::File getOrganDataDirectory();
+
 juce::File getCustomOrganConfigFile();
+juce::File getOrganStateFile();
+
+/// Ensure organ_config.json and organ_state.json exist in the active data directory.
+void ensureOrganDataFiles();
 
 //==============================================================================
 

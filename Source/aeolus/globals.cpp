@@ -19,24 +19,78 @@
 
 #include "aeolus/globals.h"
 
+namespace
+{
+    juce::File getExeDirectory()
+    {
+        return juce::File::getSpecialLocation(juce::File::currentExecutableFile)
+            .getParentDirectory();
+    }
+
+    juce::File getDocumentsAeolusDirectory()
+    {
+        return juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+            .getChildFile("Aeolus");
+    }
+
+    juce::File& activeOrganDataDirectory()
+    {
+        static juce::File dir;
+        return dir;
+    }
+}
+
 AEOLUS_NAMESPACE_BEGIN
+
+juce::File getOrganDataDirectory()
+{
+    if (activeOrganDataDirectory().getFullPathName().isNotEmpty())
+        return activeOrganDataDirectory();
+
+    const auto exeDir = getExeDirectory();
+    const auto docsDir = getDocumentsAeolusDirectory();
+
+    if (exeDir.getChildFile("organ_config.json").existsAsFile()
+        || exeDir.getChildFile("organ_state.json").existsAsFile())
+    {
+        activeOrganDataDirectory() = exeDir;
+        return exeDir;
+    }
+
+    activeOrganDataDirectory() = docsDir;
+    return docsDir;
+}
 
 juce::File getCustomOrganConfigFile()
 {
-    const static String organConfigJSON{ "organ_config.json" };
+    return getOrganDataDirectory().getChildFile("organ_config.json");
+}
 
-    // Try current working directory first
-    auto file{ juce::File::File::getCurrentWorkingDirectory()
-        .getChildFile(organConfigJSON)
-    };
+juce::File getOrganStateFile()
+{
+    return getOrganDataDirectory().getChildFile("organ_state.json");
+}
 
-    if (file.existsAsFile())
-        return file;
+void ensureOrganDataFiles()
+{
+    auto dir = getOrganDataDirectory();
 
-    // Fall back onto the global configuiration
-    return juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
-        .getChildFile("Aeolus")
-        .getChildFile("organ_config.json");
+    if (!dir.exists())
+        dir.createDirectory();
+
+    const auto configFile = dir.getChildFile("organ_config.json");
+    const auto stateFile  = dir.getChildFile("organ_state.json");
+
+    if (!configFile.existsAsFile())
+    {
+        configFile.replaceWithData(BinaryData::default_organ_json,
+                                   BinaryData::default_organ_jsonSize);
+    }
+
+    if (!stateFile.existsAsFile())
+    {
+        stateFile.replaceWithText("{\n}\n");
+    }
 }
 
 //==============================================================================
