@@ -757,8 +757,9 @@ void Division::setBassCouplerEnabled(bool ena)
             pedal->noteOff(_bassCouplerNote, 0);
 
         _bassCouplerNote = -1;
-        _engine.requestSaveOrganState();
     }
+
+    _engine.requestSaveOrganState();
 }
 
 void Division::forceKeyState(int note, bool on)
