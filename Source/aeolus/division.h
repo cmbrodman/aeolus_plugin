@@ -125,7 +125,7 @@ public:
 
     int getMIDIChannelsMask() const noexcept { return _midiChannelsMask; }
     bool isForMIDIChannel(int channel) const noexcept;
-    void setMIDIChannelsMask(int channelsMask) noexcept { _midiChannelsMask = channelsMask; }
+    void setMIDIChannelsMask(int mask);
 
     bool hasSwell() const noexcept { return _hasSwell; }
     void setHasSwell(bool v) noexcept { _hasSwell = v; }

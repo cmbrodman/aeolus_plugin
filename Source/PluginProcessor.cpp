@@ -44,6 +44,8 @@ AeolusAudioProcessor::~AeolusAudioProcessor()
     _engine.getMidiKeyboardState().removeListener(this);
 
     aeolus::EngineGlobal::getInstance()->unregisterProcessorProxy(this);
+
+    _engine.saveOrganState();
 }
 
 //==============================================================================

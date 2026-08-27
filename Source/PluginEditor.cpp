@@ -210,7 +210,10 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
                     auto* contentPtr = content.get();
 
                     auto& box = CallOutBox::launchAsynchronously(std::move(content), _settingsButton.getBounds(), this);
-                    contentPtr->onClose = [&box] { box.dismiss(); };
+                    contentPtr->onClose = [&box, this] {
+                        _audioProcessor.getEngine().saveOrganState();
+                         box.dismiss();
+};
                 }
             });
     };

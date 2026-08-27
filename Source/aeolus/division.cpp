@@ -99,6 +99,7 @@ var Division::getPersistentState() const
 
     divisionObj->setProperty("midi_channels_mask", getMIDIChannelsMask());
     divisionObj->setProperty("tremulant_enabled", isTremulantEnabled());
+    divisionObj->setProperty("bass_coupler_enabled", isBassCouplerEnabled());
 
     {
         Array<var> stops;
@@ -148,6 +149,9 @@ void Division::setPersistentState(const juce::var& v)
         }
 
         setTremulantEnabled(divisionObj->getProperty("tremulant_enabled"));
+
+        if (const auto& v = divisionObj->getProperty("bass_coupler_enabled"); !v.isVoid())
+            setBassCouplerEnabled((bool)v);
 
         if (const auto* stops = divisionObj->getProperty("stops").getArray()) {
             for (int i = 0; i < stops->size(); ++i) {
@@ -210,6 +214,7 @@ void Division::enableLink(int i, bool ena)
     if (_linkedDivisions[i].enabled != ena) {
         _linkedDivisions[i].enabled = ena;
         _engine.getSequencer()->setCurrentStepDirty();
+         _engine.requestSaveOrganState();
     }
 }
 
@@ -238,6 +243,7 @@ void Division::cancelAllLinks()
 
     if (changed)
         _engine.getSequencer()->setCurrentStepDirty();
+        _engine.requestSaveOrganState(); 
 }
 
 void Division::clear()
@@ -283,6 +289,7 @@ void Division::enableStop(int i, bool ena)
         _stops[i].setEnabled(ena);
 
         _engine.getSequencer()->setCurrentStepDirty();
+        _engine.requestSaveOrganState();
     }
 }
 
@@ -337,6 +344,7 @@ void Division::setTremulantEnabled(bool ena) noexcept
         _tremulantTargetLevel = _tremulantEnabled ? _tremulantMaxLevel : 0.0f;
 
         _engine.getSequencer()->setCurrentStepDirty();
+        _engine.requestSaveOrganState();
     }
 }
 
@@ -749,6 +757,7 @@ void Division::setBassCouplerEnabled(bool ena)
             pedal->noteOff(_bassCouplerNote, 0);
 
         _bassCouplerNote = -1;
+        _engine.requestSaveOrganState();
     }
 }
 
@@ -760,4 +769,9 @@ void Division::forceKeyState(int note, bool on)
         _keysState.reset(note);
 }
 
+void Division::setMIDIChannelsMask(int mask)
+{
+    _midiChannelsMask = mask;
+    _engine.requestSaveOrganState();
+}
 AEOLUS_NAMESPACE_END

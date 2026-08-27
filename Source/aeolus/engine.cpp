@@ -458,10 +458,12 @@ Engine::Engine()
     , _midiControlChannelsMask{ (1 << 16) - 1 }
     , _midiSwellChannelsMask{ (1 << 16) - 1 }
 {
-    populateDivisions();
+   populateDivisions();
 
     // Sequencer can be created only after the divisions have been populated.
     _sequencer = std::make_unique<Sequencer>(*this, SEQUENCER_N_STEPS);
+
+    loadOrganState();
 }
 
 void Engine::prepareToPlay(float sampleRate, int frameSize)
@@ -857,6 +859,49 @@ void Engine::setPersistentState(const var& state)
     }
 }
 
+void Engine::loadOrganState()
+{
+    const auto stateFile = getOrganStateFile();
+
+    if (!stateFile.existsAsFile())
+        return;
+
+    const auto text = stateFile.loadFileAsString();
+    if (text.isEmpty())
+        return;
+
+    const auto state = JSON::parse(text);
+    if (state.isVoid())
+        return;
+
+    // Empty {} is fine — nothing to restore
+    if (auto* obj = state.getDynamicObject())
+    {
+        if (obj->getProperties().isEmpty())
+            return;
+    }
+
+    setPersistentState(state);
+}
+
+void Engine::saveOrganState() const
+{
+    const auto stateFile = getOrganStateFile();
+    const auto state = getPersistentState();
+    const auto text = JSON::toString(state, true); // pretty-print
+
+    stateFile.replaceWithText(text);
+}
+
+void Engine::requestSaveOrganState()
+{
+    // File I/O must not run on the audio thread
+    juce::MessageManager::callAsync([this]()
+    {
+        saveOrganState();
+    });
+}
+
 void Engine::populateDivisions()
 {
     ensureOrganDataFiles();
@@ -871,32 +916,18 @@ void Engine::populateDivisions()
                                  BinaryData::default_organ_jsonSize, false);
         loadDivisionsFromConfig(stream);
     }
-}
-
-{
-    const auto configFile = getCustomOrganConfigFile();
-
-    if (configFile.exists()) {
-        FileInputStream stream(configFile);
-        loadDivisionsFromConfig(stream);
-    } else {
-        MemoryInputStream stream(BinaryData::default_organ_json, BinaryData::default_organ_jsonSize, false);
-        loadDivisionsFromConfig(stream);
-    }
 
     // Remove all the links if any.
     for (auto* division : _divisions) {
         division->clearLinkedDivisions();
     }
 
-
     // Update division links after they've been loaded.
     for (auto* division : _divisions) {
         division->populateLinkedDivisions();
     }
-
-    // @todo Do we want the divisions to be reordered by the couplings?
 }
+
 
 // @internal Helper to populate key switches from a single number or a list
 static void populateKeySwitchesVector(std::vector<int>& switches, const var& v)
@@ -1159,6 +1190,18 @@ bool Engine::isKeySwitchBackward(int key) const
     return std::find(_sequencerStepBackwardKeySwitches.begin(),
                      _sequencerStepBackwardKeySwitches.end(),
                      key) != _sequencerStepBackwardKeySwitches.end();
+}
+
+void Engine::setMIDIControlChannelsMask(int mask)
+{
+    _midiControlChannelsMask = mask;
+    requestSaveOrganState();
+}
+
+void Engine::setMIDISwellChannelsMask(int mask)
+{
+    _midiSwellChannelsMask = mask;
+    requestSaveOrganState();
 }
 
 AEOLUS_NAMESPACE_END

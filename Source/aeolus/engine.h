@@ -280,8 +280,7 @@ public:
     /**
      * Assign MIDI channel to be used to control the organ stops and sequencer.
      */
-    void setMIDIControlChannelsMask(int mask) noexcept { _midiControlChannelsMask = mask; }
-
+    void setMIDIControlChannelsMask(int mask);
     /**
     * Returns currently set MIDI control channel.
     */
@@ -290,7 +289,7 @@ public:
     /**
     * Assign MIDI channel to be used to control the organ stops and sequencer.
     */
-    void setMIDISwellChannelsMask(int mask) noexcept { _midiSwellChannelsMask = mask; }
+    void setMIDISwellChannelsMask(int mask);
 
     /**
      * Generate audio.
@@ -336,6 +335,10 @@ public:
 
     juce::var getPersistentState() const;
     void setPersistentState(const juce::var& state);
+
+    void loadOrganState();
+    void saveOrganState() const;
+    void requestSaveOrganState();
 
     void postNoteEvent(bool onOff, int note, int midiChannel);
 
