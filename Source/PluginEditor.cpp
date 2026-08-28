@@ -243,12 +243,13 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
     _mtsConnectedLabel.setColour(Label::textColourId, Colour(204, 255, 204));
     _mtsDisconnectedLabel.setColour(Label::textColourId, Colour(255, 204, 204));
 
-    _cancelButton.onClick = [this]() {
+        _cancelButton.onClick = [this]() {
         for (auto* divisionView : _divisionViews) {
             divisionView->cancelAllStops();
             divisionView->cancelAllLinks();
             divisionView->cancelTremulant();
         }
+        updateDivisionViews();
     };
 
     addAndMakeVisible(_cancelButton);
@@ -359,7 +360,9 @@ void AeolusAudioProcessorEditor::resized()
     }
 
     _divisionsComponent.setBounds(0, 0, getWidth(), y);
-    _divisionsViewport.setBounds(0, T, getWidth(), getHeight() - T - keyboardHeight - sequencerHeight);
+
+    const int bottomChrome = keyboardHeight + sequencerHeight + 2 * sequencerPadding;
+        _divisionsViewport.setBounds(0, T, getWidth(), getHeight() - T - bottomChrome);
 
     int keyboardWidth = jmin((int)_midiKeyboard.getTotalKeyboardWidth(), getWidth());
     _midiKeyboard.setBounds((getWidth() - keyboardWidth) / 2, getHeight() - keyboardHeight, keyboardWidth, keyboardHeight);
@@ -369,7 +372,10 @@ void AeolusAudioProcessorEditor::resized()
     _sequencerView.setBounds(sequencerX, _midiKeyboard.getY() - sequencerHeight - sequencerPadding, sequencerWidth, sequencerHeight);
 
     _cancelButton.setColour(TextButton::buttonColourId, Colour(0x33, 0x33, 0x33));
-    _cancelButton.setBounds((_midiKeyboard.getX() - 120)/2, getHeight() - 60, 60, 35);
+    _cancelButton.setBounds((_midiKeyboard.getX() - 120) / 2,
+                            _sequencerView.getY(),
+                            60,
+                            26);
 
     int x = _midiKeyboard.getRight() + (getWidth() - _midiKeyboard.getRight() - 140) / 2;
 

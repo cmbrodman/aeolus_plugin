@@ -926,6 +926,14 @@ bool Division::presetMatchesCurrent(int index) const
     if (!p.captured)
         return false;
 
+    bool anyStopOn = false;
+        for (const auto& stop : _stops)
+            if (stop.isEnabled())
+                anyStopOn = true;
+
+        if (!anyStopOn)
+            return false;
+
     if ((int)p.stops.size() != getStopsCount())
         return false;
     if ((int)p.links.size() != getLinksCount())

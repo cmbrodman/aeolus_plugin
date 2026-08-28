@@ -131,6 +131,9 @@ void DivisionView::cancelAllStops()
         _stopButtons.getUnchecked(i)->update();
     }
 
+    if (_division->getName() != "Pedal")
+            _division->setBassCouplerEnabled(false);
+
     updatePresetButtons();
 }
 
