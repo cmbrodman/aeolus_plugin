@@ -270,7 +270,7 @@ void Division::enableLink(int i, bool ena)
         _engine.requestSaveOrganState();
 
     if (!_applyingPreset)
-            _activePreset = -1;
+            syncActivePreset();
     }
 }
 
@@ -294,6 +294,8 @@ void Division::cancelAllLinks()
         if (link.enabled) {
             changed = true;
             link.enabled = false;
+        if (!_applyingPreset)
+                syncActivePreset();
         }
     }
 
@@ -350,7 +352,7 @@ void Division::enableStop(int i, bool ena)
         _engine.requestSaveOrganState();
 
     if (!_applyingPreset)
-            _activePreset = -1;
+            syncActivePreset();
     }
 }
 
@@ -408,7 +410,7 @@ void Division::setTremulantEnabled(bool ena) noexcept
         _engine.requestSaveOrganState();
 
     if (!_applyingPreset)
-            _activePreset = -1;
+            syncActivePreset();
     }
 }
 
@@ -823,7 +825,7 @@ void Division::setBassCouplerEnabled(bool ena)
         _bassCouplerNote = -1;
 
     if (!_applyingPreset)
-            _activePreset = -1;
+            syncActivePreset();
     }
 
     _engine.requestSaveOrganState();
@@ -914,5 +916,54 @@ bool Division::isPresetCaptured(int index) const
     if (!isPositiveAndBelow(index, (int)_presets.size()))
         return false;
     return _presets[(size_t)index].captured;
+}
+
+bool Division::presetMatchesCurrent(int index) const
+{
+    if (!isPositiveAndBelow(index, (int)_presets.size()))
+        return false;
+
+    const auto& p = _presets[(size_t)index];
+    if (!p.captured)
+        return false;
+
+    if ((int)p.stops.size() != getStopsCount())
+        return false;
+    if ((int)p.links.size() != getLinksCount())
+        return false;
+
+    for (int i = 0; i < getStopsCount(); ++i)
+        if (p.stops[(size_t)i] != _stops[(size_t)i].isEnabled())
+            return false;
+
+    for (int i = 0; i < getLinksCount(); ++i)
+        if (p.links[(size_t)i] != _linkedDivisions[(size_t)i].enabled)
+            return false;
+
+    if (p.tremulant != isTremulantEnabled())
+        return false;
+
+    if (p.bassCoupler != isBassCouplerEnabled())
+        return false;
+
+    return true;
+}
+
+void Division::syncActivePreset()
+{
+    _applyingPreset = false;
+        syncActivePreset();
+        _engine.requestSaveOrganState();
+
+    for (int i = 0; i < (int)_presets.size(); ++i)
+    {
+        if (presetMatchesCurrent(i))
+        {
+            // If two pistons are identical, the first match stays the "active" index;
+            // the UI will light every match.
+            if (_activePreset < 0)
+                _activePreset = i;
+        }
+    }
 }
 AEOLUS_NAMESPACE_END

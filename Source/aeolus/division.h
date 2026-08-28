@@ -179,6 +179,9 @@ public:
     bool isPresetCaptured(int index) const;
     int getActivePreset() const noexcept { return _activePreset; }
 
+    bool presetMatchesCurrent(int index) const;
+    void syncActivePreset();
+
 private:
 
     /**

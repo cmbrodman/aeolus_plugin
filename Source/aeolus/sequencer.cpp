@@ -258,6 +258,9 @@ void Sequencer::recallState(const OrganState& organState)
         // Restore links
         for (int i = 0; i < division->getLinksCount(); ++i)
             division->enableLink(i, organState.divisions[divIdx].links[i]);
+
+        for (int divIdx = 0; divIdx < numDivisions; ++divIdx)
+            _engine.getDivisionByIndex(divIdx)->syncActivePreset();
     }
 }
 

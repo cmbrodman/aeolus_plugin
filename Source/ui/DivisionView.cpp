@@ -123,13 +123,10 @@ void DivisionView::cancelAllStops()
 {
     jassert(_division != nullptr);
 
-    for (int i = 0; i < _division->getStopsCount(); ++i) {
-        auto& stop = _division->getStopByIndex(i);
-
-        auto* button = _stopButtons.getUnchecked(i);
-
-        stop.setEnabled(false);
-        button->update();
+    for (int i = 0; i < _division->getStopsCount(); ++i)
+    {
+        _division->enableStop(i, false);
+        _stopButtons.getUnchecked(i)->update();
     }
 
     updatePresetButtons();
@@ -382,9 +379,9 @@ void DivisionView::updatePresetButtons()
     {
         auto* b = _presetButtons[i];
         const bool captured = _division->isPresetCaptured(i);
-        const bool active = (_division->getActivePreset() == i);
+        const bool matches = _division->presetMatchesCurrent(i);
 
-        b->setToggleState(active, dontSendNotification);
+        b->setToggleState(matches, dontSendNotification);
         b->setColour(TextButton::textColourOffId,
                      captured ? Colour(0xCC, 0xCC, 0x99) : Colour(0x66, 0x66, 0x66));
     }
