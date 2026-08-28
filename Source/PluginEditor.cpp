@@ -62,7 +62,8 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
 
     setLookAndFeel(&ui::CustomLookAndFeel::getInstance());
 
-    setSize(1420, 640);
+    setSize(_audioProcessor.getEngine().getWindowWidth(),
+            _audioProcessor.getEngine().getWindowHeight());
         setResizeLimits(640, 480, 4096, 4096);
 
         _uiScalingPercent = g->getUIScalingFactor();
@@ -290,6 +291,14 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
 
     g->addListener(this);
 
+    resized();
+
+        juce::MessageManager::callAsync([safe = juce::Component::SafePointer<AeolusAudioProcessorEditor>(this)]
+        {
+            if (safe != nullptr)
+                safe->resized();
+        });
+
     startTimerHz(10);
 }
 
@@ -403,6 +412,8 @@ void AeolusAudioProcessorEditor::resized()
                             26);
 
     int x = _midiKeyboard.getRight() + (getWidth() - _midiKeyboard.getRight() - 140) / 2;
+
+    _audioProcessor.getEngine().setWindowSize(getWidth(), getHeight());
 
 }
 

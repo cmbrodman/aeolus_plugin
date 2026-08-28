@@ -352,6 +352,10 @@ public:
     void saveOrganState() const;
     void requestSaveOrganState();
 
+    void setWindowSize(int width, int height);
+        int getWindowWidth() const noexcept { return _windowWidth; }
+        int getWindowHeight() const noexcept { return _windowHeight; }
+
     void postNoteEvent(bool onOff, int note, int midiChannel);
 
 private:
@@ -393,6 +397,9 @@ private:
     std::optional<StopControlMode> _stopControlMode{};
     int _stopControlGroup{};
     int _stopControlButton{};
+
+    int _windowWidth { 1420 };
+    int _windowHeight { 640 };
 
     /// List of all divisions
     juce::OwnedArray<Division> _divisions;

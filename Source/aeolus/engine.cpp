@@ -847,6 +847,9 @@ var Engine::getPersistentState() const
 
     obj->setProperty("sequencer", _sequencer->getPersistentState());
 
+    obj->setProperty("window_width", _windowWidth);
+    obj->setProperty("window_height", _windowHeight);
+
     return var{obj};
 }
 
@@ -854,6 +857,12 @@ void Engine::setPersistentState(const var& state)
 {
     if (const auto* obj = state.getDynamicObject()) {
         // Restore control channels
+
+        if (const auto& v = obj->getProperty("window_width"); !v.isVoid())
+            _windowWidth = jmax(640, (int)v);
+
+        if (const auto& v = obj->getProperty("window_height"); !v.isVoid())
+            _windowHeight = jmax(480, (int)v);
 
         if (const auto& v = obj->getProperty("midi_ctrl_channel"); !v.isVoid()) {
             int ch = (int)v;
@@ -1288,6 +1297,19 @@ void Engine::injectKeepAlive(float* outL, float* outR, int numFrames)
     }
 
     _keepAliveSamplesLeft -= n;
+}
+
+void Engine::setWindowSize(int width, int height)
+{
+    width = jmax(640, width);
+    height = jmax(480, height);
+
+    if (width == _windowWidth && height == _windowHeight)
+        return;
+
+    _windowWidth = width;
+    _windowHeight = height;
+    requestSaveOrganState();
 }
 
 AEOLUS_NAMESPACE_END
