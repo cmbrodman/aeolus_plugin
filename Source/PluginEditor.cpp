@@ -62,11 +62,13 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
 
     setLookAndFeel(&ui::CustomLookAndFeel::getInstance());
 
-    setSize(1420, 640);
-    setResizeLimits(640, 480, 4096, 4096);
+    setResizable(true, false);   // resize from the frame, not a second constrainer
+        setSize(1420, 640);
 
-    _uiScalingPercent = g->getUIScalingFactor();
-    setScaleFactor(1e-2f * _uiScalingPercent);
+        _uiScalingPercent = g->getUIScalingFactor();
+        const float scale = 1e-2f * _uiScalingPercent;
+        if (std::abs(scale - 1.0f) > 0.001f)
+            setScaleFactor(scale);
 
     addAndMakeVisible(_versionLabel);
     _versionLabel.setFont(Font(FontOptions(Font::getDefaultMonospacedFontName(), 10, Font::plain)));
@@ -291,8 +293,6 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
 
     g->addListener(this);
 
-    resized();
-
     startTimerHz(10);
 }
 
@@ -408,21 +408,11 @@ void AeolusAudioProcessorEditor::timerCallback()
 
 void AeolusAudioProcessorEditor::onUIScalingFactorChanged(float scalingPercent)
 {
-    juce::Component* comp{ this };
+    if (std::abs(scalingPercent - _uiScalingPercent) < 0.01f)
+        return;
 
-    while (comp->getParentComponent() != nullptr)
-        comp = comp->getParentComponent();
-
-    const auto width{ comp->getWidth() };
-    const auto height{ comp->getHeight() };
-    const float scaling{ 1e-2f * scalingPercent };
-
+    const float scaling = 1e-2f * scalingPercent;
     setScaleFactor(scaling);
-
-    float adjust{ scalingPercent / _uiScalingPercent };
-
-    comp->setSize(width * adjust, height * adjust);
-
     _uiScalingPercent = scalingPercent;
 }
 
