@@ -56,6 +56,7 @@ const static char* tuningFrequency = "tuningFrequency";
 const static char* tuningTemperament = "tuningTemperament";
 const static char* mtsEnabled = "mtsEnabled";
 const static char* uiScalingFactor = "uiScalingFactor";
+const static char* keyboardVisible = "keyboardVisible";
 }
 
 EngineGlobal::EngineGlobal()
@@ -136,6 +137,8 @@ void EngineGlobal::loadSettings()
         const float uiScalingFactor = (float)propertiesFile->getDoubleValue(settings::uiScalingFactor, UI_SCALING_DEFAULT);
         if (uiScalingFactor >= UI_SCALING_MIN && uiScalingFactor <= UI_SCALING_MAX)
             _uiScalingFactor = uiScalingFactor;
+
+        _keyboardVisible = propertiesFile->getBoolValue(settings::keyboardVisible, true);
     }
 }
 
@@ -146,6 +149,7 @@ void EngineGlobal::saveSettings()
         propertiesFile->setValue(settings::tuningTemperament, (int)_scale.getType());
         propertiesFile->setValue(settings::mtsEnabled, _mtsEnabled);
         propertiesFile->setValue(settings::uiScalingFactor, _uiScalingFactor);
+        propertiesFile->setValue(settings::keyboardVisible, _keyboardVisible);
     }
 
     _globalProperties.saveIfNeeded();

@@ -26,9 +26,10 @@ using namespace juce;
 namespace ui {
 
 SettingsComponent::SettingsComponent()
-    : _settingsLabel {{}, "Global settings"}
+    : _settingsLabel {{}, "UI Settings"}
     , _uiScalingFactorLabel {{}, "UI scaling factor"}
     , _uiScalingFactorSlider{Slider::IncDecButtons, Slider::TextBoxLeft}
+    , _keyboardVisibleButton{"Show on-screen keyboard"}
     , _defaultButton{"Default"}
     , _okButton{"OK"}
     , _cancelButton{"Cancel"}
@@ -49,10 +50,13 @@ SettingsComponent::SettingsComponent()
     _uiScalingFactorSlider.setRange(aeolus::UI_SCALING_MIN, aeolus::UI_SCALING_MAX, aeolus::UI_SCALING_SETP);
     _uiScalingFactorSlider.setValue(g->getUIScalingFactor(), juce::dontSendNotification);
 
+    addAndMakeVisible(_keyboardVisibleButton);
+    _keyboardVisibleButton.setToggleState(g->isKeyboardVisible(), dontSendNotification);
 
     addAndMakeVisible(_defaultButton);
     _defaultButton.onClick = [this] {
         _uiScalingFactorSlider.setValue(aeolus::UI_SCALING_DEFAULT);
+        _keyboardVisibleButton.setToggleState(true, dontSendNotification);
     };
 
     addAndMakeVisible(_okButton);
@@ -68,11 +72,17 @@ SettingsComponent::SettingsComponent()
     _cancelButton.setColour(TextButton::buttonColourId, Colour(0x66, 0x66, 0x33));
     _okButton.setColour(TextButton::buttonColourId, Colour(0x66, 0x66, 0x33));
     _defaultButton.setColour(TextButton::buttonColourId, Colour(0x46, 0x60, 0x16));
+
 }
 
 float SettingsComponent::getUIScalingFactor() const
 {
     return (float)_uiScalingFactorSlider.getValue();
+}
+
+bool SettingsComponent::isKeyboardVisible() const
+{
+    return _keyboardVisibleButton.getToggleState();
 }
 
 void SettingsComponent::resized()
@@ -87,8 +97,12 @@ void SettingsComponent::resized()
     bounds.removeFromTop(3 * margin);
 
     auto row = bounds.removeFromTop(20);
-    _uiScalingFactorLabel.setBounds(row.removeFromLeft(120));
-    _uiScalingFactorSlider.setBounds(row.removeFromLeft(110));
+        _uiScalingFactorLabel.setBounds(row.removeFromLeft(120));
+        _uiScalingFactorSlider.setBounds(row.removeFromLeft(110));
+
+    bounds.removeFromTop(margin);
+        auto keyRow = bounds.removeFromTop(22);
+        _keyboardVisibleButton.setBounds(keyRow);
 
 
     row = bounds.removeFromBottom(20);

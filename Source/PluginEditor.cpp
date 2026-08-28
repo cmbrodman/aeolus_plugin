@@ -176,7 +176,7 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
 
         _settingsButton.onClick = [this] {
         PopupMenu menu;
-        menu.addItem(1, "UI Scaling");
+        menu.addItem(1, "UI Settings");
         menu.addItem(2, "MIDI Settings");
 
         menu.showMenuAsync(PopupMenu::Options().withTargetComponent(_settingsButton),
@@ -185,18 +185,22 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
                 if (result == 1)
                 {
                     auto content = std::make_unique<ui::SettingsComponent>();
-                    content->setSize(240, 120);
+                    content->setSize(280, 160);
                     auto* contentPtr = content.get();
 
                     auto& box = CallOutBox::launchAsynchronously(std::move(content), _settingsButton.getBounds(), this);
                     contentPtr->onCancel = [&box] { box.dismiss(); };
-                    contentPtr->onOk = [&box, contentPtr] {
-                        auto* g = aeolus::EngineGlobal::getInstance();
-                        const float uiScalingFactor = contentPtr->getUIScalingFactor();
-                        if (g->getUIScalingFactor() != uiScalingFactor) {
-                            g->setUIScalingFactor(uiScalingFactor);
-                            g->saveSettings();
-                        }
+                    contentPtr->onOk = [&box, contentPtr, this] {
+                            auto* g = aeolus::EngineGlobal::getInstance();
+                            const float uiScalingFactor = contentPtr->getUIScalingFactor();
+                            if (g->getUIScalingFactor() != uiScalingFactor) {
+                                g->setUIScalingFactor(uiScalingFactor);
+                            }
+
+                        g->setKeyboardVisible(contentPtr->isKeyboardVisible());
+                        _midiKeyboard.setVisible(g->isKeyboardVisible());
+                        g->saveSettings();
+                        resized();
                         box.dismiss();
                     };
                 }
@@ -263,6 +267,7 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
     _midiKeyboard.setScrollButtonsVisible(false);
     _midiKeyboard.setAvailableRange(21, 108);
     addAndMakeVisible(_midiKeyboard);
+    _midiKeyboard.setVisible(g->isKeyboardVisible());
 
 
     // Overlay and sequencer must go on the very top
@@ -346,10 +351,12 @@ void AeolusAudioProcessorEditor::resized()
     _mtsConnectedLabel.setBounds(_settingsButton.getRight() + 40, margin, 160, 20);
     _mtsDisconnectedLabel.setBounds(_mtsConnectedLabel.getBounds());
 
-    constexpr int T = margin * 2 + 20;
+        constexpr int T = margin * 2 + 20;
     constexpr int sequencerHeight = 26;
     constexpr int sequencerPadding = 6;
     constexpr int keyboardHeight = 70;
+    const int kbH = _midiKeyboard.isVisible() ? keyboardHeight : 0;
+    const int bottomChrome = kbH + sequencerHeight + 2 * sequencerPadding;
 
     int y = 0;
 
@@ -360,19 +367,32 @@ void AeolusAudioProcessorEditor::resized()
     }
 
     _divisionsComponent.setBounds(0, 0, getWidth(), y);
+    _divisionsViewport.setBounds(0, T, getWidth(), getHeight() - T - bottomChrome);
 
-    const int bottomChrome = keyboardHeight + sequencerHeight + 2 * sequencerPadding;
-        _divisionsViewport.setBounds(0, T, getWidth(), getHeight() - T - bottomChrome);
-
-    int keyboardWidth = jmin((int)_midiKeyboard.getTotalKeyboardWidth(), getWidth());
-    _midiKeyboard.setBounds((getWidth() - keyboardWidth) / 2, getHeight() - keyboardHeight, keyboardWidth, keyboardHeight);
+    if (kbH > 0)
+    {
+        int keyboardWidth = jmin((int)_midiKeyboard.getTotalKeyboardWidth(), getWidth());
+        _midiKeyboard.setBounds((getWidth() - keyboardWidth) / 2,
+                                getHeight() - keyboardHeight,
+                                keyboardWidth,
+                                keyboardHeight);
+        _sequencerView.setBounds(_sequencerView.getX(),
+                                 _midiKeyboard.getY() - sequencerHeight - sequencerPadding,
+                                 _sequencerView.getWidth(),
+                                 sequencerHeight);
+    }
 
     const float sequencerWidth{ (float)_sequencerView.getOptimalWidth() };
     const float sequencerX{ 0.5f * (getWidth() - sequencerWidth) + ui::SequencerView::buttonWidth };
-    _sequencerView.setBounds(sequencerX, _midiKeyboard.getY() - sequencerHeight - sequencerPadding, sequencerWidth, sequencerHeight);
+
+    const int sequencerY = (kbH > 0)
+        ? _midiKeyboard.getY() - sequencerHeight - sequencerPadding
+        : getHeight() - sequencerHeight - sequencerPadding;
+
+    _sequencerView.setBounds(sequencerX, sequencerY, sequencerWidth, sequencerHeight);
 
     _cancelButton.setColour(TextButton::buttonColourId, Colour(0x33, 0x33, 0x33));
-    _cancelButton.setBounds((_midiKeyboard.getX() - 120) / 2,
+       _cancelButton.setBounds(sequencerX - 80,
                             _sequencerView.getY(),
                             60,
                             26);

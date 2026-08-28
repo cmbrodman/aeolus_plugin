@@ -122,6 +122,9 @@ public:
     float getUIScalingFactor() const noexcept { return _uiScalingFactor; }
     void setUIScalingFactor(float f);
 
+    bool isKeyboardVisible() const noexcept { return _keyboardVisible; }
+        void setKeyboardVisible(bool v) noexcept { _keyboardVisible = v; }
+
     void rebuildRankwaves();
 
     JUCE_DECLARE_SINGLETON (EngineGlobal, false)
@@ -161,6 +164,8 @@ private:
     std::array<float, 128> _mtsTuningCache{};
 
     float _uiScalingFactor{ UI_SCALING_DEFAULT };
+
+    bool _keyboardVisible { true };
 
     juce::ApplicationProperties _globalProperties;
 };

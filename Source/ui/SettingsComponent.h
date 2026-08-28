@@ -33,6 +33,7 @@ public:
     SettingsComponent();
 
     float getUIScalingFactor() const;
+    bool isKeyboardVisible() const;
 
     void resized() override;
 
@@ -40,10 +41,10 @@ public:
     std::function<void()> onCancel{};
 
 private:
-
     juce::Label _settingsLabel;
     juce::Label _uiScalingFactorLabel;
     juce::Slider _uiScalingFactorSlider;
+    juce::ToggleButton _keyboardVisibleButton;
 
     juce::TextButton _defaultButton;
     juce::TextButton _okButton;
