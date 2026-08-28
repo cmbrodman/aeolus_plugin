@@ -147,6 +147,8 @@ juce::File getOrganStateFile();
 /// Ensure organ_config.json and organ_state.json exist in the active data directory.
 void ensureOrganDataFiles();
 
+juce::Array<juce::File> getStopSearchDirectories();
+void ensureStopFiles();
 //==============================================================================
 
 namespace math {

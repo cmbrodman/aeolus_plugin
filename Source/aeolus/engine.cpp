@@ -424,15 +424,101 @@ bool EngineGlobal::updateMTSTuningCache()
   return changed;
 }
 
+void EngineGlobal::pollStopFiles()
+{
+    if (++_stopPollCounter < 10) // 100ms timer × 10 = ~1 s
+        return;
+    _stopPollCounter = 0;
+
+    juce::Array<juce::File> dirs;
+
+    if (true)
+    {
+        dirs.add(File::getSpecialLocation(File::currentExecutableFile).getParentDirectory());
+        dirs.add(File::getSpecialLocation(File::userDocumentsDirectory).getChildFile("Aeolus"));
+        dirs.add(File::getSpecialLocation(File::userDocumentsDirectory).getChildFile("Aeolus").getChildFile("Stops"));
+    }
+
+    const juce::StringArray skip{
+        "organ_config.json", "organ_state.json", "default_organ.json"
+    };
+
+    for (auto dir : dirs)
+    {
+        if (!dir.isDirectory())
+            continue;
+
+        for (DirectoryEntry entry : RangedDirectoryIterator(dir, false))
+        {
+            auto file = entry.getFile();
+            const auto ext = file.getFileExtension().toLowerCase();
+            if (ext != ".json" && ext != ".ae0")
+                continue;
+            if (skip.contains(file.getFileName()))
+                continue;
+
+            const auto key = file.getFullPathName();
+            const auto mod = file.getLastModificationTime().toMilliseconds();
+
+            if (! _stopFileModTimes.contains(key))
+            {
+                _stopFileModTimes.set(key, mod);
+                continue; // first sighting — don't reload
+            }
+
+            if (_stopFileModTimes[key] == mod)
+                continue;
+
+            // Editor may still be writing — wait until the stamp is ≥300 ms old
+            if (Time::currentTimeMillis() - mod < 300)
+                continue;
+
+            _stopFileModTimes.set(key, mod);
+            reloadStopFile(file);
+        }
+    }
+}
+
+void EngineGlobal::reloadStopFile(const File& file)
+{
+    auto* model = Model::getInstance();
+    if (model == nullptr || !model->reloadStopFromFile(file))
+        return;
+
+    const auto name = file.getFileNameWithoutExtension();
+
+    for (auto* p : _processors)
+        p->killAllVoices();
+
+    if (auto* rw = getStopByName(name))
+    {
+        rw->recreateFromModel(_scale, _tuningFrequency);
+        if (_sampleRate > 1.0f)
+            rw->prepareToPlay(_sampleRate);
+    }
+    else if (auto* synth = model->getStopByName(name))
+    {
+        auto rankwave = std::make_unique<Rankwave>(*synth);
+        rankwave->createPipes(_scale, _tuningFrequency);
+        if (_sampleRate > 1.0f)
+            rankwave->prepareToPlay(_sampleRate);
+        auto* ptr = rankwave.get();
+        _rankwaves.add(rankwave.release());
+        _rankwavesByName.set(ptr->getStopName(), ptr);
+    }
+}
+
 void EngineGlobal::timerCallback()
 {
-    if (!_mtsEnabled) return;
+    pollStopFiles();
+
+    if (!_mtsEnabled)
+        return;
 
     auto changed{ updateMTSTuningCache() };
 
-    if (changed) {
+    if (changed)
         rebuildRankwaves();
-    }
 }
 
 

@@ -581,54 +581,47 @@ Model::Model()
     : _synths()
     , _nameToSynthMap()
 {
+    ensureStopFiles();
     loadExternalPipes();
     loadEmbeddedPipes();
 }
 
-StringArray Model::getStopNames() const
-{
-    StringArray stops;
-
-    for (const auto* synth : _synths) {
-        stops.add(synth->getStopName());
-    }
-
-    return stops;
-}
-
-Addsynth* Model::getStopByName(const juce::String& name)
-{
-    auto it = _nameToSynthMap.find(name);
-
-    if (it == _nameToSynthMap.end())
-        return nullptr;
-
-    return it->second;
-}
-
 void Model::loadExternalPipes()
 {
-    File configFile{ aeolus::getCustomOrganConfigFile() };
-    const String configFileName{ configFile.getFileName() };
-    File configFolder{ configFile.getParentDirectory() };
+    const juce::StringArray skipNames{
+        "organ_config.json",
+        "organ_state.json",
+        "default_organ.json"
+    };
 
-    if (!configFolder.exists())
-        return;
+    for (auto dir : getStopSearchDirectories())
+    {
+        if (!dir.isDirectory())
+            continue;
 
-    for (DirectoryEntry entry : RangedDirectoryIterator(configFolder, true)) {
-        auto file{ entry.getFile() };
-        const auto ext{ file.getFileExtension().toLowerCase() };
+        for (DirectoryEntry entry : RangedDirectoryIterator(dir, false))
+        {
+            auto file = entry.getFile();
+            if (!file.existsAsFile())
+                continue;
 
-        if ((ext == ".json" && file.getFileName() != configFileName) || (ext == ".ae0")) {
+            if (skipNames.contains(file.getFileName()))
+                continue;
+
+            const auto ext = file.getFileExtension().toLowerCase();
+            if (ext != ".json" && ext != ".ae0")
+                continue;
+
             auto synth = std::make_unique<Addsynth>();
-            const auto res{ synth->readFromFile(file) };
+            const auto res = synth->readFromFile(file);
 
-            if (res.wasOk()) {
-                String stopName{ file.getFileNameWithoutExtension() };
-                synth->setStopName(stopName);
-
+            if (res.wasOk())
+            {
+                synth->setStopName(file.getFileNameWithoutExtension());
                 addSynth(std::move(synth));
-            } else {
+            }
+            else
+            {
                 DBG("Failed to read: " << res.getErrorMessage());
             }
         }
@@ -690,6 +683,28 @@ void Model::addSynth(std::unique_ptr<Addsynth>&& synthToAdd)
         // Pipe with this name already exists - it won't be added again
         DBG("Pipe " << stopName << " duplicate found");
     }
+}
+
+bool Model::reloadStopFromFile(const File& file)
+{
+    const String stopName = file.getFileNameWithoutExtension();
+
+    auto synth = std::make_unique<Addsynth>();
+    const auto res = synth->readFromFile(file);
+    if (!res.wasOk())
+        return false;
+
+    synth->setStopName(stopName);
+
+    if (auto* existing = getStopByName(stopName))
+    {
+        existing->fromVar(synth->toVar());
+        existing->setStopName(stopName);
+        return true;
+    }
+
+    addSynth(std::move(synth));
+    return true;
 }
 
 JUCE_IMPLEMENT_SINGLETON(Model)

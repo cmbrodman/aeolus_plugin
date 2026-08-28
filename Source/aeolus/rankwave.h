@@ -152,6 +152,13 @@ public:
 
     Pipewave::State trigger(int note);
 
+    void Rankwave::recreateFromModel(const Scale& scale, float tuningFreq)
+{
+    _noteMin = _model.getNoteMin();
+    _noteMax = _model.getNoteMax();
+    createPipes(scale, tuningFreq);
+}
+
 private:
     Addsynth& _model;
     int _noteMin;

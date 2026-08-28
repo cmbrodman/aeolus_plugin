@@ -186,6 +186,8 @@ public:
     juce::StringArray getStopNames() const;
     Addsynth* getStopByName(const juce::String& name);
 
+    bool reloadStopFromFile(const juce::File& file);
+
     int getStopsCount() const { return _synths.size(); }
     Addsynth* operator[](int idx) { return _synths[idx]; }
     const Addsynth* operator[](int idx) const { return _synths[idx]; }

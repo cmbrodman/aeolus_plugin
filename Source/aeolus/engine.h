@@ -127,6 +127,8 @@ public:
 
     void rebuildRankwaves();
 
+    void reloadStopFile(const juce::File& file);
+
     JUCE_DECLARE_SINGLETON (EngineGlobal, false)
 
 private:
@@ -175,6 +177,11 @@ private:
     bool _keyboardVisible { true };
 
     juce::ApplicationProperties _globalProperties;
+
+    void pollStopFiles();
+        juce::HashMap<juce::String, juce::int64> _stopFileModTimes;
+        int _stopPollCounter { 0 };
+
 };
 
 //==============================================================================
