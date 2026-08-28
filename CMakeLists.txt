@@ -24,23 +24,33 @@ if(MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "Runtime Library")
 endif()
 
-option(WITH_ASIO "Enable ASIO audio interface" ON)
+option(WITH_ASIO "Enable ASIO audio interface" OFF)
 
 option(WITH_MULTIBUS_OUTPUT "Enable multibus output" OFF)
 
 add_subdirectory(JUCE)
-add_subdirectory(clap-juce-extensions EXCLUDE_FROM_ALL)
 
 set(plugin_formats
-    VST3
     Standalone
 )
 
-if(APPLE)
-    list(APPEND plugin_formats AU)
-elseif(UNIX AND NOT APPLE)
-    list(APPEND plugin_formats LV2)
+cmake_minimum_required(VERSION 3.20)
+
+project(Aeolus VERSION 0.3.0)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "Runtime Library")
 endif()
+
+option(WITH_ASIO "Enable ASIO audio interface" OFF)
+option(WITH_MULTIBUS_OUTPUT "Enable multibus output" OFF)
+
+set(plugin_formats
+    Standalone
+)
 
 if(WITH_MULTIBUS_OUTPUT)
     set(TARGET "${PROJECT_NAME}-multibus")
@@ -54,7 +64,6 @@ else()
     set(PLUGIN_CODE "E6he")
 endif()
 
-
 juce_add_plugin(${TARGET}
     VERSION "0.3.0"
     PLUGIN_MANUFACTURER_CODE "Arbe"
@@ -67,14 +76,8 @@ juce_add_plugin(${TARGET}
     IS_MIDI_EFFECT FALSE
     NEEDS_MIDI_INPUT TRUE
     FORMATS ${plugin_formats}
-    LV2URI "https://github.com/Archie3d/aeolus_plugin"
     ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/Resources/icons/icon256.png"
     ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/Resources/icons/icon64.png"
-)
-
-clap_juce_extensions_plugin(TARGET ${TARGET}
-    CLAP_ID "com.ArthurBenilov.Aeolus"
-    CLAP_FEATURES instrument "virtual analog"
 )
 
 
