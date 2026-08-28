@@ -941,6 +941,9 @@ void Engine::populateDivisions()
     // Update division links after they've been loaded.
     for (auto* division : _divisions) {
         division->populateLinkedDivisions();
+    
+    for (auto* division : _divisions)
+        division->ensurePresets();
     }
 }
 

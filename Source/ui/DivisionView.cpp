@@ -55,6 +55,7 @@ DivisionView::DivisionView(aeolus::Division* division)
 
     populateStopButtons();
     populateLinkButtons();
+    populatePresetButtons();
 
             // Shade swell-enabled divisions differently
     if (_division->hasSwell()) {
@@ -130,6 +131,8 @@ void DivisionView::cancelAllStops()
         stop.setEnabled(false);
         button->update();
     }
+
+    updatePresetButtons();
 }
 
 void DivisionView::cancelAllLinks()
@@ -158,7 +161,7 @@ int DivisionView::getEstimatedHeightForWidth(int width) const
     const int nButtonsInRow = juce::jmax(1, usable / buttonSize);
     const int nRows = _stopButtons.size() / nButtonsInRow
                     + (_stopButtons.size() % nButtonsInRow > 0 ? 1 : 0);
-    return nRows * buttonSize + paddingTop + paddingBottom;
+    return nRows * buttonSize + paddingTop + paddingBottom + 28;
 }
 
 void DivisionView::resized()
@@ -246,6 +249,7 @@ void DivisionView::resized()
             ++index;
         }
     }
+    layoutPresetButtons();
 }
 
 void DivisionView::paint(Graphics& g)
@@ -312,6 +316,88 @@ void DivisionView::populateLinkButtons()
         if (div == _division)
             break;
     }
+}
+
+void DivisionView::populatePresetButtons()
+{
+    _presetButtons.clear();
+
+    for (int i = 0; i < aeolus::DIVISION_PRESET_COUNT; ++i)
+    {
+        auto button = std::make_unique<TextButton>(String(i + 1));
+        auto* ptr = button.get();
+
+        ptr->setColour(TextButton::buttonColourId, Colour(0x40, 0x33, 0x33));
+        ptr->setColour(TextButton::buttonOnColourId, Colour(0xDF, 0xC0, 0x36));
+        ptr->setColour(TextButton::textColourOffId, Colour(0x99, 0x99, 0x99));
+        ptr->setColour(TextButton::textColourOnId, Colours::white);
+
+        ptr->onClick = [this, i]()
+        {
+            if (_programMode)
+            {
+                _division->capturePreset(i);
+                if (onPresetStored)
+                    onPresetStored();
+            }
+            else
+            {
+                _division->recallPreset(i);
+            }
+            updatePresetButtons();
+        };
+
+        addAndMakeVisible(ptr);
+        _presetButtons.add(button.release());
+    }
+}
+
+void DivisionView::layoutPresetButtons()
+{
+    constexpr int controlPanelWidth = 130;
+    constexpr int leftCouplerStrip = 110;
+    constexpr int presetH = 22;
+    constexpr int gap = 4;
+
+    const int midLeft = leftCouplerStrip;
+    const int midWidth = getWidth() - controlPanelWidth - leftCouplerStrip;
+    const int n = _presetButtons.size();
+    if (n == 0 || midWidth < 20)
+        return;
+
+    const int btnW = 28;
+    const int totalW = n * btnW + (n - 1) * gap;
+    const int startX = midLeft + jmax(0, (midWidth - totalW) / 2);
+    const int y = getHeight() - presetH - 4;
+
+    _presetRowBounds = { midLeft, y - 2, midWidth, presetH + 6 };
+
+    for (int i = 0; i < n; ++i)
+        _presetButtons[i]->setBounds(startX + i * (btnW + gap), y, btnW, presetH);
+}
+
+void DivisionView::updatePresetButtons()
+{
+    for (int i = 0; i < _presetButtons.size(); ++i)
+    {
+        auto* b = _presetButtons[i];
+        const bool captured = _division->isPresetCaptured(i);
+        const bool active = (_division->getActivePreset() == i);
+
+        b->setToggleState(active, dontSendNotification);
+        b->setColour(TextButton::textColourOffId,
+                     captured ? Colour(0xCC, 0xCC, 0x99) : Colour(0x66, 0x66, 0x66));
+    }
+}
+
+void DivisionView::setProgramMode(bool on)
+{
+    _programMode = on;
+}
+
+juce::Rectangle<int> DivisionView::getPresetRowBoundsIn(Component& target) const
+{
+    return target.getLocalArea(this, _presetRowBounds);
 }
 
 } // namespace ui

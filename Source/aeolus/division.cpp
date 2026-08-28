@@ -129,6 +129,29 @@ var Division::getPersistentState() const
         divisionObj->setProperty("links", links);
     }
 
+    {
+        Array<var> presets;
+        for (const auto& p : _presets)
+        {
+            auto* obj = new DynamicObject();
+            obj->setProperty("captured", p.captured);
+            obj->setProperty("tremulant", p.tremulant);
+            obj->setProperty("bass_coupler", p.bassCoupler);
+
+            Array<var> stops;
+            for (bool s : p.stops) stops.add(s);
+            obj->setProperty("stops", stops);
+
+            Array<var> links;
+            for (bool l : p.links) links.add(l);
+            obj->setProperty("links", links);
+
+            presets.add(var{obj});
+        }
+        divisionObj->setProperty("presets", presets);
+        divisionObj->setProperty("active_preset", _activePreset);
+    }
+
     return var{divisionObj};
 }
 
@@ -182,6 +205,36 @@ void Division::setPersistentState(const juce::var& v)
                 }
             }
         }
+
+        ensurePresets();
+
+        if (const auto* presets = divisionObj->getProperty("presets").getArray())
+        {
+            const int n = jmin((int)_presets.size(), presets->size());
+            for (int i = 0; i < n; ++i)
+            {
+                if (const auto* obj = presets->getReference(i).getDynamicObject())
+                {
+                    auto& p = _presets[(size_t)i];
+                    p.captured = (bool)obj->getProperty("captured");
+                    p.tremulant = (bool)obj->getProperty("tremulant");
+                    p.bassCoupler = (bool)obj->getProperty("bass_coupler");
+
+                    if (const auto* stops = obj->getProperty("stops").getArray())
+                        if (stops->size() == (int)p.stops.size())
+                            for (int s = 0; s < stops->size(); ++s)
+                                p.stops[(size_t)s] = (bool)stops->getUnchecked(s);
+
+                    if (const auto* links = obj->getProperty("links").getArray())
+                        if (links->size() == (int)p.links.size())
+                            for (int l = 0; l < links->size(); ++l)
+                                p.links[(size_t)l] = (bool)links->getUnchecked(l);
+                }
+            }
+        }
+
+        if (const auto& v = divisionObj->getProperty("active_preset"); !v.isVoid())
+            _activePreset = (int)v;
     }
 }
 
@@ -214,7 +267,10 @@ void Division::enableLink(int i, bool ena)
     if (_linkedDivisions[i].enabled != ena) {
         _linkedDivisions[i].enabled = ena;
         _engine.getSequencer()->setCurrentStepDirty();
-         _engine.requestSaveOrganState();
+        _engine.requestSaveOrganState();
+
+    if (!_applyingPreset)
+            _activePreset = -1;
     }
 }
 
@@ -292,6 +348,9 @@ void Division::enableStop(int i, bool ena)
 
         _engine.getSequencer()->setCurrentStepDirty();
         _engine.requestSaveOrganState();
+
+    if (!_applyingPreset)
+            _activePreset = -1;
     }
 }
 
@@ -347,6 +406,9 @@ void Division::setTremulantEnabled(bool ena) noexcept
 
         _engine.getSequencer()->setCurrentStepDirty();
         _engine.requestSaveOrganState();
+
+    if (!_applyingPreset)
+            _activePreset = -1;
     }
 }
 
@@ -759,6 +821,9 @@ void Division::setBassCouplerEnabled(bool ena)
             pedal->noteOff(_bassCouplerNote, 0);
 
         _bassCouplerNote = -1;
+
+    if (!_applyingPreset)
+            _activePreset = -1;
     }
 
     _engine.requestSaveOrganState();
@@ -776,5 +841,78 @@ void Division::setMIDIChannelsMask(int mask)
 {
     _midiChannelsMask = mask;
     _engine.requestSaveOrganState();
+}
+
+void Division::ensurePresets()
+{
+    if ((int)_presets.size() == DIVISION_PRESET_COUNT
+        && !_presets.empty()
+        && (int)_presets[0].stops.size() == getStopsCount()
+        && (int)_presets[0].links.size() == getLinksCount())
+        return;
+
+    _presets.assign((size_t)DIVISION_PRESET_COUNT, {});
+    for (auto& p : _presets)
+    {
+        p.stops.assign((size_t)getStopsCount(), false);
+        p.links.assign((size_t)getLinksCount(), false);
+        p.captured = false;
+    }
+}
+
+void Division::capturePreset(int index)
+{
+    ensurePresets();
+    jassert(isPositiveAndBelow(index, (int)_presets.size()));
+
+    auto& p = _presets[(size_t)index];
+    p.stops.resize((size_t)getStopsCount());
+    p.links.resize((size_t)getLinksCount());
+
+    for (int i = 0; i < getStopsCount(); ++i)
+        p.stops[(size_t)i] = getStopByIndex(i).isEnabled();
+
+    for (int i = 0; i < getLinksCount(); ++i)
+        p.links[(size_t)i] = getLinkByIndex(i).enabled;
+
+    p.tremulant = isTremulantEnabled();
+    p.bassCoupler = isBassCouplerEnabled();
+    p.captured = true;
+    _activePreset = index;
+
+    _engine.requestSaveOrganState();
+}
+
+void Division::recallPreset(int index)
+{
+    ensurePresets();
+    jassert(isPositiveAndBelow(index, (int)_presets.size()));
+
+    const auto& p = _presets[(size_t)index];
+    if (!p.captured)
+        return;
+
+    _applyingPreset = true;
+
+    for (int i = 0; i < getStopsCount() && i < (int)p.stops.size(); ++i)
+        enableStop(i, p.stops[(size_t)i]);
+
+    for (int i = 0; i < getLinksCount() && i < (int)p.links.size(); ++i)
+        enableLink(i, p.links[(size_t)i]);
+
+    setTremulantEnabled(p.tremulant);
+    setBassCouplerEnabled(p.bassCoupler);
+
+    _activePreset = index;
+    _applyingPreset = false;
+
+    _engine.requestSaveOrganState();
+}
+
+bool Division::isPresetCaptured(int index) const
+{
+    if (!isPositiveAndBelow(index, (int)_presets.size()))
+        return false;
+    return _presets[(size_t)index].captured;
 }
 AEOLUS_NAMESPACE_END

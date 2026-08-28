@@ -48,11 +48,22 @@ public:
     void paint(juce::Graphics&) override;
 
     std::function<void()> onStateChanged;
+    std::function<void()> onPresetStored;
+
+    void setProgramMode(bool on);
+        juce::Rectangle<int> getPresetRowBoundsIn(juce::Component& target) const;
 
 private:
 
     void populateStopButtons();
     void populateLinkButtons();
+    void populatePresetButtons();
+    void layoutPresetButtons();
+    void updatePresetButtons();
+
+    juce::OwnedArray<juce::TextButton> _presetButtons;
+    bool _programMode = false;
+    juce::Rectangle<int> _presetRowBounds;
 
     aeolus::Division* _division;
 

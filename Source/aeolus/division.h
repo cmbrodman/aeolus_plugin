@@ -169,7 +169,15 @@ public:
 
     void setBassCouplerEnabled(bool ena);
     bool isBassCouplerEnabled() const noexcept { return _bassCouplerEnabled; }
-    void forceKeyState(int note, bool on);   // ← add this line
+    void forceKeyState(int note, bool on); 
+
+    static constexpr int getPresetCount() { return DIVISION_PRESET_COUNT; }
+
+    void ensurePresets();
+    void capturePreset(int index);
+    void recallPreset(int index);
+    bool isPresetCaptured(int index) const;
+    int getActivePreset() const noexcept { return _activePreset; }
 
 private:
 
@@ -234,6 +242,19 @@ private:
     // Bass coupler support
     bool _bassCouplerEnabled = false;
     int  _bassCouplerNote = -1;   // -1 means no note currently sent to pedal
+
+        struct Preset
+    {
+        std::vector<bool> stops;
+        std::vector<bool> links;
+        bool tremulant = false;
+        bool bassCoupler = false;
+        bool captured = false;
+    };
+
+    std::vector<Preset> _presets;
+    int _activePreset = -1;
+    bool _applyingPreset = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Division)
 };

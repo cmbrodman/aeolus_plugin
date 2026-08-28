@@ -36,6 +36,10 @@ public:
     void mouseUp(const juce::MouseEvent& event) override;
 
     std::function<void()> onClick;
+    
+    std::function<juce::Array<juce::Rectangle<int>>()> getExcludeRects;
+
+    bool hitTest(int x, int y) override;
 
 private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OverlayComponent)

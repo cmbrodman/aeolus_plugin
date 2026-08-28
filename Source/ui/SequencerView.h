@@ -55,6 +55,8 @@ public:
     constexpr static int buttonWidth = 25;
     constexpr static int buttonPadding = 3;
 
+    bool isProgramMode() const noexcept { return _programMode; }
+
 private:
 
     constexpr static int radioGroupId = 1001;

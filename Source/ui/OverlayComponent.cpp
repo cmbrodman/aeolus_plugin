@@ -31,6 +31,12 @@ OverlayComponent::OverlayComponent()
 
 void OverlayComponent::paint(Graphics& g)
 {
+    if (getExcludeRects)
+    {
+        for (auto r : getExcludeRects())
+            g.excludeClipRegion(r);
+    }
+
     g.setColour(Colour(0xCC000000));
     g.fillAll();
 }
@@ -43,6 +49,18 @@ void OverlayComponent::mouseUp(const MouseEvent&)
 {
     if (onClick)
         onClick();
+}
+
+bool OverlayComponent::hitTest(int x, int y)
+{
+    if (getExcludeRects)
+    {
+        for (auto r : getExcludeRects())
+            if (r.contains(x, y))
+                return false;
+    }
+
+    return true;
 }
 
 } // namespace ui

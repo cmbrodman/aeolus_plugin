@@ -272,6 +272,13 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
         _sequencerView.cancelProgramMode();
     };
 
+    _overlay.getExcludeRects = [this]() {
+        Array<Rectangle<int>> rects;
+        for (auto* dv : _divisionViews)
+            rects.add(dv->getPresetRowBoundsIn(_overlay));
+        return rects;
+    };
+
     _sequencerView.addListener(this);
 
     addAndMakeVisible(_sequencerView);
@@ -396,11 +403,15 @@ void AeolusAudioProcessorEditor::onUIScalingFactorChanged(float scalingPercent)
 void AeolusAudioProcessorEditor::onSequencerEnterProgramMode()
 {
     _overlay.setVisible(true);
+    for (auto* dv : _divisionViews)
+        dv->setProgramMode(true);
 }
 
 void AeolusAudioProcessorEditor::onSequencerLeaveProgramMode()
 {
     _overlay.setVisible(false);
+    for (auto* dv : _divisionViews)
+        dv->setProgramMode(false);
 }
 
 void AeolusAudioProcessorEditor::populateDivisions()
@@ -411,6 +422,12 @@ void AeolusAudioProcessorEditor::populateDivisions()
         auto view = std::make_unique<ui::DivisionView>(div);
         _divisionsComponent.addAndMakeVisible(view.get());
         _divisionViews.add(view.release());
+        _overlay.getExcludeRects = [this]() {
+            Array<Rectangle<int>> rects;
+            for (auto* dv : _divisionViews)
+                rects.add(dv->getPresetRowBoundsIn(_overlay));
+            return rects;
+        };
     }
 }
 

@@ -88,6 +88,9 @@ constexpr static float TREMULANT_DELAY_MODULATION_LEVEL = 0.9f; // Frequency mod
 /// Number of steps in the sequencer.
 constexpr static int SEQUENCER_N_STEPS = 32;
 
+/// Number of divisional presets (pistons)
+constexpr static int DIVISION_PRESET_COUNT = 10;
+
 constexpr static int SEQUENCER_BACKWARD_MIDI_KEY = 22;
 constexpr static int SEQUENCER_FORWARD_MIDI_KEY = 23;
 
