@@ -494,6 +494,20 @@ void Engine::prepareToPlay(float sampleRate, int frameSize)
     _interpolator.reset();
 
     _sampleRate = sampleRate;
+
+    _samplesSinceAudio = 0;
+        _keepAliveSamplesLeft = 0;
+        _streamNeedsPrime = true;    
+
+// Prime the convolver with silence so the first real note isn't a click
+    constexpr int primeSize = 512;
+    juce::HeapBlock<float> zeros(primeSize);
+    zeros.clear(primeSize);
+
+    for (int i = 0; i < 16; ++i)
+        _convolver.process(zeros, zeros, zeros, zeros, primeSize);
+
+    _reverbTailCounter = _convolver.length();
 }
 
 void Engine::setReverbIR(int num)
@@ -600,12 +614,40 @@ void Engine::process(float* outL, float* outR, int numFrames, bool isNonRealtime
     else
         _reverbTailCounter = jmax(0, _reverbTailCounter - origNumFrames);
 
-    if (_reverbTailCounter > 0 && _convolver.isAudible()) {
+    if (_convolver.isAudible()) {
         _convolver.setNonRealtime(isNonRealtime);
         _convolver.process(origOutL, origOutR, origOutL, origOutR, origNumFrames);
     }
 
     applyVolume(origOutL, origOutR, origNumFrames);
+
+    if (wasAudioGenerated)
+    {
+        _samplesSinceAudio = 0;
+        _keepAliveSamplesLeft = 0;
+        _streamNeedsPrime = false;
+    }
+    else
+    {
+        _samplesSinceAudio += origNumFrames;
+    }
+
+    if (_streamNeedsPrime)
+    {
+        // ~80 ms of inaudible noise so WASAPI actually starts
+        _keepAliveSamplesLeft = jmax(1, (int)(_sampleRate * 0.08f));
+        _streamNeedsPrime = false;
+        _samplesSinceAudio = 0;
+    }
+    else if (_samplesSinceAudio >= (int)(_sampleRate * 25.0f))
+    {
+        // another short burst every 25 s of silence
+        _keepAliveSamplesLeft = jmax(1, (int)(_sampleRate * 0.04f));
+        _samplesSinceAudio = 0;
+    }
+
+    if (_keepAliveSamplesLeft > 0)
+        injectKeepAlive(origOutL, origOutR, origNumFrames);    
 
     // Apply limiter
     if (_limiterEnabled) {
@@ -1225,6 +1267,27 @@ void Engine::setMIDISwellChannelsMask(int mask)
 {
     _midiSwellChannelsMask = mask;
     requestSaveOrganState();
+}
+
+void Engine::injectKeepAlive(float* outL, float* outR, int numFrames)
+{
+    const int n = jmin(numFrames, _keepAliveSamplesLeft);
+    // ~-86 dB — below organ noise, above digital-zero for WASAPI
+    constexpr float amp = 5.0e-5f;
+
+    for (int i = 0; i < n; ++i)
+    {
+        _keepAliveRng = _keepAliveRng * 1664525u + 1013904223u;
+        const float r1 = (float)(_keepAliveRng >> 8) * (1.0f / 16777216.0f);
+        _keepAliveRng = _keepAliveRng * 1664525u + 1013904223u;
+        const float r2 = (float)(_keepAliveRng >> 8) * (1.0f / 16777216.0f);
+        const float x = amp * (r1 + r2 - 1.0f); // TPDF dither
+
+        outL[i] += x;
+        outR[i] += x;
+    }
+
+    _keepAliveSamplesLeft -= n;
 }
 
 AEOLUS_NAMESPACE_END

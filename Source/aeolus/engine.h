@@ -159,6 +159,13 @@ private:
     Scale _scale;
     float _tuningFrequency;
 
+    void injectKeepAlive(float* outL, float* outR, int numFrames);  // Keeps audio stream alive
+
+        int _samplesSinceAudio { 0 };
+        int _keepAliveSamplesLeft { 0 };
+        bool _streamNeedsPrime { true };
+        uint32_t _keepAliveRng { 1 };
+
     MTSClient* _mtsClient{};
     bool _mtsEnabled{};
     std::array<float, 128> _mtsTuningCache{};
@@ -424,7 +431,14 @@ private:
     std::atomic<int> _midiSwellChannelsMask;
 
     std::atomic<bool> _restoringState { false };
-    std::atomic<bool> _saveDebouncePending { false };
+        std::atomic<bool> _saveDebouncePending { false };
+
+        void injectKeepAlive(float* outL, float* outR, int numFrames);
+
+        int _samplesSinceAudio { 0 };
+        int _keepAliveSamplesLeft { 0 };
+        bool _streamNeedsPrime { true };
+        uint32_t _keepAliveRng { 1 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Engine)
 };
