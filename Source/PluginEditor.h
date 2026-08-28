@@ -37,6 +37,31 @@ class AeolusAudioProcessorEditor  : public juce::AudioProcessorEditor,
                                     public juce::Timer,
                                     public aeolus::EngineGlobal::Listener,
                                     public ui::SequencerView::Listener
+
+class NoCreepConstrainer : public juce::ComponentBoundsConstrainer
+
+{
+public:
+    void checkBounds (juce::Rectangle<int>& bounds,
+                      const juce::Rectangle<int>& previousBounds,
+                      const juce::Rectangle<int>& limits,
+                      bool isStretchingTop,
+                      bool isStretchingLeft,
+                      bool isStretchingBottom,
+                      bool isStretchingRight) override
+    {
+        ComponentBoundsConstrainer::checkBounds (bounds, previousBounds, limits,
+                                                 isStretchingTop, isStretchingLeft,
+                                                 isStretchingBottom, isStretchingRight);
+
+        if (isStretchingTop && ! isStretchingBottom)
+            bounds.setBottom (previousBounds.getBottom());
+
+        if (isStretchingLeft && ! isStretchingRight)
+            bounds.setRight (previousBounds.getRight());
+    }
+};                                    
+
 {
 public:
     AeolusAudioProcessorEditor (AeolusAudioProcessor&);
@@ -45,6 +70,7 @@ public:
     //==============================================================================
     void paint (juce::Graphics&) override;
     void resized() override;
+    void parentHierarchyChanged() override;
 
     // juce::Timer
     void timerCallback() override;
@@ -68,6 +94,7 @@ private:
     void updateDivisionViews();
     void updateSequencerView();
 
+    NoCreepConstrainer _noCreep;
     AeolusAudioProcessor& _audioProcessor;
 
     juce::Viewport _divisionsViewport;

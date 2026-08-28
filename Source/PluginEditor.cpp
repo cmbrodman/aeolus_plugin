@@ -62,7 +62,7 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
 
     setLookAndFeel(&ui::CustomLookAndFeel::getInstance());
 
-    setResizable(true, false);   // resize from the frame, not a second constrainer
+    setResizable(true, false);
         setSize(1420, 640);
 
         _uiScalingPercent = g->getUIScalingFactor();
@@ -298,6 +298,10 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
 
 AeolusAudioProcessorEditor::~AeolusAudioProcessorEditor()
 {
+    if (auto* w = findParentComponentOfClass<juce::ResizableWindow>())
+        if (w->getConstrainer() == &_noCreep)
+            w->setConstrainer(nullptr);
+
     auto* g = aeolus::EngineGlobal::getInstance();
     g->removeListener(this);
 
@@ -311,6 +315,16 @@ void AeolusAudioProcessorEditor::paint (juce::Graphics& g)
 
     g.setColour(Colour(0x36, 0x35, 0x33));
     g.fillRect(0, 0, getWidth(), 30);
+}
+
+void AeolusAudioProcessorEditor::parentHierarchyChanged()
+{
+    if (auto* w = findParentComponentOfClass<juce::ResizableWindow>())
+    {
+        _noCreep.setMinimumSize(640, 480);
+        _noCreep.setMaximumSize(4096, 4096);
+        w->setConstrainer(&_noCreep);
+    }
 }
 
 void AeolusAudioProcessorEditor::resized()
