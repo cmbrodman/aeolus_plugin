@@ -29,17 +29,7 @@
 #include "ui/MidiChannelsComponent.h"
 #include "ui/OverlayComponent.h"
 
-//==============================================================================
-/**
- * @brief Plugin UI.
- */
-class AeolusAudioProcessorEditor  : public juce::AudioProcessorEditor,
-                                    public juce::Timer,
-                                    public aeolus::EngineGlobal::Listener,
-                                    public ui::SequencerView::Listener
-
 class NoCreepConstrainer : public juce::ComponentBoundsConstrainer
-
 {
 public:
     void checkBounds (juce::Rectangle<int>& bounds,
@@ -50,9 +40,9 @@ public:
                       bool isStretchingBottom,
                       bool isStretchingRight) override
     {
-        ComponentBoundsConstrainer::checkBounds (bounds, previousBounds, limits,
-                                                 isStretchingTop, isStretchingLeft,
-                                                 isStretchingBottom, isStretchingRight);
+        juce::ComponentBoundsConstrainer::checkBounds (bounds, previousBounds, limits,
+                                                       isStretchingTop, isStretchingLeft,
+                                                       isStretchingBottom, isStretchingRight);
 
         if (isStretchingTop && ! isStretchingBottom)
             bounds.setBottom (previousBounds.getBottom());
@@ -60,30 +50,29 @@ public:
         if (isStretchingLeft && ! isStretchingRight)
             bounds.setRight (previousBounds.getRight());
     }
-};                                    
+};
 
+class AeolusAudioProcessorEditor  : public juce::AudioProcessorEditor,
+                                    public juce::Timer,
+                                    public aeolus::EngineGlobal::Listener,
+                                    public ui::SequencerView::Listener
 {
 public:
     AeolusAudioProcessorEditor (AeolusAudioProcessor&);
     ~AeolusAudioProcessorEditor() override;
 
-    //==============================================================================
     void paint (juce::Graphics&) override;
     void resized() override;
     void parentHierarchyChanged() override;
 
-    // juce::Timer
     void timerCallback() override;
 
-    // aeolus::EngineGlobal::Listener
     void onUIScalingFactorChanged(float scalingPercent) override;
 
-    // SequencerView::Listener
     void onSequencerEnterProgramMode() override;
     void onSequencerLeaveProgramMode() override;
 
 private:
-
     void populateDivisions();
     void refresh();
 
@@ -94,7 +83,6 @@ private:
     void updateDivisionViews();
     void updateSequencerView();
 
-    NoCreepConstrainer _noCreep;
     AeolusAudioProcessor& _audioProcessor;
 
     juce::Viewport _divisionsViewport;
@@ -128,10 +116,10 @@ private:
     juce::Label _mtsConnectedLabel;
     juce::Label _mtsDisconnectedLabel;
 
-    /// Organ cancel button
     juce::TextButton _cancelButton;
 
     float _uiScalingPercent{};
+    NoCreepConstrainer _noCreep;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AeolusAudioProcessorEditor)
 };
