@@ -248,20 +248,17 @@ void Sequencer::recallState(const OrganState& organState)
 
         jassert(organState.divisions[divIdx].stops.size() == division->getStopsCount());
 
-        // Restore stops
         for (int i = 0; i < division->getStopsCount(); ++i)
             division->enableStop(i, organState.divisions[divIdx].stops[i]);
 
-        // Restore tremulant
         division->setTremulantEnabled(organState.divisions[divIdx].tremulant);
 
-        // Restore links
         for (int i = 0; i < division->getLinksCount(); ++i)
             division->enableLink(i, organState.divisions[divIdx].links[i]);
-
-        for (int divIdx = 0; divIdx < numDivisions; ++divIdx)
-            _engine.getDivisionByIndex(divIdx)->syncActivePreset();
     }
+
+    for (int divIdx = 0; divIdx < numDivisions; ++divIdx)
+        _engine.getDivisionByIndex(divIdx)->syncActivePreset();
 }
 
 AEOLUS_NAMESPACE_END

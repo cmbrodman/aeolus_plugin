@@ -117,6 +117,8 @@ void DivisionView::update()
 
     if (_division->getName() != "Pedal")
         _bassCouplerButton.setToggleState(_division->isBassCouplerEnabled(), juce::dontSendNotification);
+
+    updatePresetButtons();
 }
 
 void DivisionView::cancelAllStops()

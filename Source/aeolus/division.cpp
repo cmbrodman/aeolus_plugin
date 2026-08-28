@@ -816,17 +816,16 @@ void Division::setBassCouplerEnabled(bool ena)
 
     _bassCouplerEnabled = ena;
 
-    // If we are turning the coupler off, release any note we were sending to the pedal
     if (!_bassCouplerEnabled && _bassCouplerNote >= 0)
     {
         if (auto* pedal = _engine.getDivisionByName("Pedal"))
             pedal->noteOff(_bassCouplerNote, 0);
 
         _bassCouplerNote = -1;
+    }
 
     if (!_applyingPreset)
-            syncActivePreset();
-    }
+        syncActivePreset();
 
     _engine.requestSaveOrganState();
 }
@@ -951,16 +950,12 @@ bool Division::presetMatchesCurrent(int index) const
 
 void Division::syncActivePreset()
 {
-    _applyingPreset = false;
-        syncActivePreset();
-        _engine.requestSaveOrganState();
+    _activePreset = -1;
 
     for (int i = 0; i < (int)_presets.size(); ++i)
     {
         if (presetMatchesCurrent(i))
         {
-            // If two pistons are identical, the first match stays the "active" index;
-            // the UI will light every match.
             if (_activePreset < 0)
                 _activePreset = i;
         }
