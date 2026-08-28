@@ -1066,6 +1066,88 @@ void Engine::populateDivisions()
     }
 }
 
+static juce::String romanDivisionName(int indexZeroBased)
+{
+    static const char* r[] = { "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X" };
+    return juce::String("Division ") + r[juce::jlimit(0, 9, indexZeroBased)];
+}
+
+void Engine::applyDivisionLayout(int count, const juce::StringArray& names)
+{
+    count = jlimit(1, 10, count);
+    allNotesOff();
+
+    ensureOrganDataFiles();
+    const auto configFile = getCustomOrganConfigFile();
+
+    var config;
+    if (configFile.existsAsFile())
+        config = JSON::parse(configFile.loadFileAsString());
+    else
+        config = JSON::parse(String::fromUTF8(BinaryData::default_organ_json,
+                                              BinaryData::default_organ_jsonSize));
+
+    auto* obj = config.getDynamicObject();
+    if (obj == nullptr)
+        return;
+
+    if (!obj->getProperty("divisions").isArray())
+        obj->setProperty("divisions", Array<var>());
+
+    auto* arr = obj->getProperty("divisions").getArray();
+
+    while (arr->size() > count)
+        arr->remove(arr->size() - 1);
+
+    while (arr->size() < count)
+    {
+        auto* d = new DynamicObject();
+        const int i = arr->size();
+        d->setProperty("name", romanDivisionName(i));
+        d->setProperty("mnemonic", String(i + 1));
+        d->setProperty("swell", false);
+        d->setProperty("tremulant", true);
+        d->setProperty("tremulant_level", 0.2);
+        d->setProperty("stops", Array<var>());
+        arr->add(var(d));
+    }
+
+    for (int i = 0; i < count; ++i)
+    {
+        auto* d = arr->getReference(i).getDynamicObject();
+        if (d == nullptr)
+            continue;
+
+        String name = (i < names.size()) ? names[i].trim() : String();
+        if (name.isEmpty())
+            name = romanDivisionName(i);
+
+        d->setProperty("name", name);
+    }
+
+    configFile.replaceWithText(JSON::toString(config, true));
+
+    _divisions.clear();
+
+    {
+        FileInputStream stream(configFile);
+        loadDivisionsFromConfig(stream);
+    }
+
+    for (auto* division : _divisions)
+        division->clearLinkedDivisions();
+
+    for (auto* division : _divisions)
+        division->populateLinkedDivisions();
+
+    for (auto* division : _divisions)
+        division->ensurePresets();
+
+    if (_sequencer != nullptr)
+        _sequencer->initFromEngine();
+
+    requestSaveOrganState();
+}
 
 // @internal Helper to populate key switches from a single number or a list
 static void populateKeySwitchesVector(std::vector<int>& switches, const var& v)

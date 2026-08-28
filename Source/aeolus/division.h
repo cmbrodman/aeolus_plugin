@@ -83,6 +83,7 @@ public:
     Engine& getEngine() noexcept { return _engine; }
 
     juce::String getName() const { return _name; }
+    void setName(const juce::String& n) { _name = n; }
     juce::String getMnemonic() const { return _mnemonic; }
 
     /**

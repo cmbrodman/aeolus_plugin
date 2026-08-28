@@ -27,6 +27,8 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+#include "ui/DivisionEditorComponent.h"
+
 using namespace juce;
 
 //==============================================================================
@@ -178,6 +180,7 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
         PopupMenu menu;
         menu.addItem(1, "UI Settings");
         menu.addItem(2, "MIDI Settings");
+        menu.addItem(3, "Division Editor");
 
         menu.showMenuAsync(PopupMenu::Options().withTargetComponent(_settingsButton),
             [this](int result)
@@ -217,7 +220,25 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
                     contentPtr->onClose = [&box, this] {
                         _audioProcessor.getEngine().saveOrganState();
                          box.dismiss();
-};
+                    };
+                }
+                else if (result == 3)
+                {
+                    auto content = std::make_unique<ui::DivisionEditorComponent>(_audioProcessor.getEngine());
+                    content->setSize(400, 470);
+                    auto* contentPtr = content.get();
+
+                    auto& box = CallOutBox::launchAsynchronously(std::move(content), _settingsButton.getBounds(), this);
+                    contentPtr->onCancel = [&box] { box.dismiss(); };
+                    contentPtr->onOk = [&box, contentPtr, this] {
+                        _divisionViews.clear();
+                        _divisionsComponent.removeAllChildren();
+                        _audioProcessor.getEngine().applyDivisionLayout(
+                            contentPtr->getCount(), contentPtr->getNames());
+                        populateDivisions();
+                        resized();
+                        box.dismiss();
+                    };
                 }
             });
     };

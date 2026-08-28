@@ -77,9 +77,9 @@ public:
     void setCurrentStepDirty() noexcept { _dirty = true; }
     bool isCurrentStepDirty() const noexcept { return _dirty; }
 
+    void initFromEngine();
 private:
 
-    void initFromEngine();
     void captureState(OrganState& organState);
     void recallState(const OrganState& organState);
 

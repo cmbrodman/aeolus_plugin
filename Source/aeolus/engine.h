@@ -358,6 +358,8 @@ public:
     void loadOrganState();
     void saveOrganState() const;
     void requestSaveOrganState();
+    
+    void applyDivisionLayout(int count, const juce::StringArray& names);
 
     void setWindowSize(int width, int height);
         int getWindowWidth() const noexcept { return _windowWidth; }
