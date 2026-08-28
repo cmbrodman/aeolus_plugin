@@ -62,13 +62,10 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
 
     setLookAndFeel(&ui::CustomLookAndFeel::getInstance());
 
-    setResizable(true, false);
-        setSize(1420, 640);
+    setSize(1420, 640);
+        setResizeLimits(640, 480, 4096, 4096);
 
         _uiScalingPercent = g->getUIScalingFactor();
-        const float scale = 1e-2f * _uiScalingPercent;
-        if (std::abs(scale - 1.0f) > 0.001f)
-            setScaleFactor(scale);
 
     addAndMakeVisible(_versionLabel);
     _versionLabel.setFont(Font(FontOptions(Font::getDefaultMonospacedFontName(), 10, Font::plain)));
@@ -319,12 +316,6 @@ void AeolusAudioProcessorEditor::paint (juce::Graphics& g)
 
 void AeolusAudioProcessorEditor::parentHierarchyChanged()
 {
-    if (auto* w = findParentComponentOfClass<juce::ResizableWindow>())
-    {
-        _noCreep.setMinimumSize(640, 480);
-        _noCreep.setMaximumSize(4096, 4096);
-        w->setConstrainer(&_noCreep);
-    }
 }
 
 void AeolusAudioProcessorEditor::resized()
@@ -422,12 +413,8 @@ void AeolusAudioProcessorEditor::timerCallback()
 
 void AeolusAudioProcessorEditor::onUIScalingFactorChanged(float scalingPercent)
 {
-    if (std::abs(scalingPercent - _uiScalingPercent) < 0.01f)
-        return;
-
-    const float scaling = 1e-2f * scalingPercent;
-    setScaleFactor(scaling);
     _uiScalingPercent = scalingPercent;
+    // Do not call setScaleFactor — it makes the native window grow when resized.
 }
 
 void AeolusAudioProcessorEditor::onSequencerEnterProgramMode()
