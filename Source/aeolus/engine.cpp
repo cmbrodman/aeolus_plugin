@@ -497,7 +497,9 @@ void Engine::prepareToPlay(float sampleRate, int frameSize)
 
     _samplesSinceAudio = 0;
         _keepAliveSamplesLeft = 0;
-        _streamNeedsPrime = true;    
+        _streamNeedsPrime = false;
+        _outputFade = 0.0f;
+        _startupFadeDone = false;   
 
 // Prime the convolver with silence so the first real note isn't a click
     constexpr int primeSize = 512;
@@ -621,33 +623,9 @@ void Engine::process(float* outL, float* outR, int numFrames, bool isNonRealtime
 
     applyVolume(origOutL, origOutR, origNumFrames);
 
-    if (wasAudioGenerated)
-    {
-        _samplesSinceAudio = 0;
-        _keepAliveSamplesLeft = 0;
-        _streamNeedsPrime = false;
-    }
-    else
-    {
-        _samplesSinceAudio += origNumFrames;
-    }
-
-    if (_streamNeedsPrime)
-    {
-        // ~80 ms of inaudible noise so WASAPI actually starts
-        _keepAliveSamplesLeft = jmax(1, (int)(_sampleRate * 0.08f));
-        _streamNeedsPrime = false;
-        _samplesSinceAudio = 0;
-    }
-    else if (_samplesSinceAudio >= (int)(_sampleRate * 25.0f))
-    {
-        // another short burst every 25 s of silence
-        _keepAliveSamplesLeft = jmax(1, (int)(_sampleRate * 0.04f));
-        _samplesSinceAudio = 0;
-    }
-
-    if (_keepAliveSamplesLeft > 0)
-        injectKeepAlive(origOutL, origOutR, origNumFrames);    
+    // Always dither so WASAPI Low Latency never sees digital silence
+    injectKeepAlive(origOutL, origOutR, origNumFrames);
+            constexpr float amp = 8.0e-5f;
 
     // Apply limiter
     if (_limiterEnabled) {
@@ -1280,23 +1258,20 @@ void Engine::setMIDISwellChannelsMask(int mask)
 
 void Engine::injectKeepAlive(float* outL, float* outR, int numFrames)
 {
-    const int n = jmin(numFrames, _keepAliveSamplesLeft);
-    // ~-86 dB — below organ noise, above digital-zero for WASAPI
-    constexpr float amp = 5.0e-5f;
+    // ~-74 dB — inaudible, enough that WASAPI does not suspend the stream
+    constexpr float amp = 8.0e-5f;
 
-    for (int i = 0; i < n; ++i)
+    for (int i = 0; i < numFrames; ++i)
     {
         _keepAliveRng = _keepAliveRng * 1664525u + 1013904223u;
         const float r1 = (float)(_keepAliveRng >> 8) * (1.0f / 16777216.0f);
         _keepAliveRng = _keepAliveRng * 1664525u + 1013904223u;
         const float r2 = (float)(_keepAliveRng >> 8) * (1.0f / 16777216.0f);
-        const float x = amp * (r1 + r2 - 1.0f); // TPDF dither
+        const float x = amp * (r1 + r2 - 1.0f);
 
         outL[i] += x;
         outR[i] += x;
     }
-
-    _keepAliveSamplesLeft -= n;
 }
 
 void Engine::setWindowSize(int width, int height)

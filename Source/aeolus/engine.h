@@ -446,7 +446,8 @@ private:
         int _keepAliveSamplesLeft { 0 };
         bool _streamNeedsPrime { true };
         uint32_t _keepAliveRng { 1 };
-
+        float _outputFade { 0.0f };
+        bool _startupFadeDone { false };
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Engine)
 };
 
