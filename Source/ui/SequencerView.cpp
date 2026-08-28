@@ -37,9 +37,12 @@ SequencerView::SequencerView(aeolus::Sequencer* sequencer)
     populateStepButtons();
 
     _setButton.setColour(TextButton::buttonColourId, Colour(0x46, 0x60, 0x16));
-    _setButton.onClick = [this]() {
-            enterProgramMode();
-        };
+        _setButton.onClick = [this]() {
+            if (_programMode)
+                cancelProgramMode();
+            else
+                enterProgramMode();
+    };
 
     _backwardButton.setColour(TextButton::buttonColourId, Colour(0x46, 0x60, 0x16));
     _backwardButton.onClick = [this]() {
@@ -67,7 +70,9 @@ void SequencerView::update()
 void SequencerView::cancelProgramMode()
 {
     _programMode = false;
+    _setButton.setButtonText("Set");
     _setButton.setEnabled(true);
+    _setButton.setColour(TextButton::buttonColourId, Colour(0x46, 0x60, 0x16));
     _backwardButton.setEnabled(true);
     _forwardButton.setEnabled(true);
 
@@ -159,7 +164,9 @@ void SequencerView::populateStepButtons()
 void SequencerView::enterProgramMode()
 {
     _programMode = true;
-    _setButton.setEnabled(false);
+    _setButton.setButtonText("Cancel");
+    _setButton.setEnabled(true);
+    _setButton.setColour(TextButton::buttonColourId, Colour(0x80, 0x33, 0x16));
     _backwardButton.setEnabled(false);
     _forwardButton.setEnabled(false);
 

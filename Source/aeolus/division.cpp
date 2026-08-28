@@ -242,8 +242,10 @@ void Division::cancelAllLinks()
     }
 
     if (changed)
+    {
         _engine.getSequencer()->setCurrentStepDirty();
-        _engine.requestSaveOrganState(); 
+        _engine.requestSaveOrganState();
+    }
 }
 
 void Division::clear()

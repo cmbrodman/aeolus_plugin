@@ -507,6 +507,7 @@ void Engine::setReverbIR(int num)
         _reverbTailCounter = _convolver.length();
 
         _selectedIR = num;
+            requestSaveOrganState();
     }
 }
 
@@ -874,14 +875,15 @@ void Engine::loadOrganState()
     if (state.isVoid())
         return;
 
-    // Empty {} is fine — nothing to restore
     if (auto* obj = state.getDynamicObject())
     {
         if (obj->getProperties().isEmpty())
             return;
     }
 
+    _restoringState = true;
     setPersistentState(state);
+    _restoringState = false;
 }
 
 void Engine::saveOrganState() const
@@ -895,10 +897,24 @@ void Engine::saveOrganState() const
 
 void Engine::requestSaveOrganState()
 {
-    // File I/O must not run on the audio thread
+    if (_restoringState.load())
+        return;
+
     juce::MessageManager::callAsync([this]()
     {
-        saveOrganState();
+        if (_restoringState.load())
+            return;
+
+        if (_saveDebouncePending.exchange(true))
+            return;
+
+        juce::Timer::callAfterDelay(250, [this]()
+        {
+            _saveDebouncePending.store(false);
+
+            if (!_restoringState.load())
+                saveOrganState();
+        });
     });
 }
 

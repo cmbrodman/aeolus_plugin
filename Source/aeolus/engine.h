@@ -418,6 +418,9 @@ private:
     std::atomic<int> _midiControlChannelsMask;
     std::atomic<int> _midiSwellChannelsMask;
 
+    std::atomic<bool> _restoringState { false };
+    std::atomic<bool> _saveDebouncePending { false };
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Engine)
 };
 

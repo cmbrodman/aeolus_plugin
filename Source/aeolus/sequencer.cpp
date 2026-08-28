@@ -157,6 +157,7 @@ void Sequencer::captureCurrentStep()
 {
     captureState(_steps[_currentStep]);
     _dirty = false;
+    _engine.requestSaveOrganState();
 }
 
 void Sequencer::captureStateToStep(int index)
@@ -168,6 +169,7 @@ void Sequencer::captureStateToStep(int index)
     // Current state now matches the sequencer step, so we switch to it
     _currentStep = index;
     _dirty = false;
+    _engine.requestSaveOrganState();
 }
 
 void Sequencer::setStep(int index, bool captureCurrentState)
@@ -180,6 +182,7 @@ void Sequencer::setStep(int index, bool captureCurrentState)
     _currentStep = index;
     recallState(_steps[_currentStep]);
     _dirty = false;
+    _engine.requestSaveOrganState();
 }
 
 void Sequencer::stepBackward()
