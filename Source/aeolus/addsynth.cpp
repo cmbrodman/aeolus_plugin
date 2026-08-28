@@ -668,6 +668,16 @@ void Model::loadEmbeddedPipes()
     }
 }
 
+Addsynth* Model::getStopByName(const juce::String& name)
+{
+    auto it = _nameToSynthMap.find(name);
+
+    if (it == _nameToSynthMap.end())
+        return nullptr;
+
+    return it->second;
+}
+
 void Model::addSynth(std::unique_ptr<Addsynth>&& synthToAdd)
 {
     std::unique_ptr<Addsynth> synth{ std::move(synthToAdd) };
