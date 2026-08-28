@@ -25,13 +25,15 @@ using namespace juce;
 namespace ui {
 
 namespace details {
-    const static juce::Colour onColour { 0xFF, 0xF0, 0x00 };
-    const static juce::Colour offColour{ 0x66, 0x66, 0x66 };
+    const static juce::Colour onColour { 0xF5, 0xD9, 0x51 };  // ivory
+    const static juce::Colour offColour{ 0xE4, 0xD8, 0xC4 };  // slightly duskier ivory
 
     const static juce::Colour textFluteOnColour { 0x00, 0x00, 0x00 };
-    const static juce::Colour textFluteOffColour{ 0x11, 0x11, 0x11 };
-    const static juce::Colour textReedOnColour  { 0xFF, 0x33, 0x00 };
-    const static juce::Colour textReedOffColour { 0x7F, 0x00, 0x00 };
+    const static juce::Colour textFluteOffColour{ 0x00, 0x00, 0x00 };
+    const static juce::Colour textReedOnColour  { 0xAB, 0x0E, 0x0E };
+    const static juce::Colour textReedOffColour { 0xAB, 0x0E, 0x0E };
+
+    const static juce::Colour ringColour { 0x3A, 0x3A, 0x3A }; // 2px dark gray
 }
 
 StopButton::StopButton(aeolus::Division& division, int stopIndex)
@@ -64,22 +66,19 @@ void StopButton::update()
 
 void StopButton::paintButton (Graphics& g, bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown)
 {
-    auto bounds = getLocalBounds();
-    bounds.reduce(_margin, _margin);
+    auto bounds = getLocalBounds().reduced(_margin).toFloat();
 
-    g.setColour(Colours::black);
-    g.fillEllipse(bounds.toFloat());
+    g.setColour(details::ringColour);
+    g.fillEllipse(bounds);
 
-    int offset = 2;
+    auto inner = bounds.reduced(2.0f); // uniform 2px ring
 
     if (shouldDrawButtonAsDown)
-        offset += 2;
+        inner.translate(0.0f, 1.0f);
 
-    auto paintColour{ shouldDrawButtonAsHighlighted ? colour.brighter() : colour };
-
+    auto paintColour = shouldDrawButtonAsHighlighted ? colour.brighter(0.06f) : colour;
     g.setColour(paintColour);
-    g.fillEllipse(float(bounds.getX() + offset), float(bounds.getY() + offset),
-                  float(bounds.getWidth() - 8), float(bounds.getHeight() - 8));
+    g.fillEllipse(inner);
 
     const bool on{ getToggleState() };
 
@@ -93,9 +92,10 @@ void StopButton::paintButton (Graphics& g, bool shouldDrawButtonAsHighlighted, b
     font.setHeight(14);
     g.setFont(font);
 
-    g.drawMultiLineText(getName(), bounds.getX() + offset,
-                        bounds.getY() + bounds.getHeight()/2 + offset - 8,
-                        bounds.getWidth() - 10,
+    g.drawMultiLineText(getName(),
+                        (int)inner.getX(),
+                        (int)(inner.getCentreY() - 8),
+                        (int)inner.getWidth(),
                         Justification::centred);
 }
 
