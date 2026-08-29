@@ -40,15 +40,18 @@ Parameters::Parameters(AeolusAudioProcessor& proc)
 
     auto& engine = proc.getEngine();
 
-    for (int i = 0; i < engine.getDivisionCount(); ++i) {
-        auto* division = engine.getDivisionByIndex(i);
-
-        auto param = std::make_unique<AudioParameterFloat>(ParameterID{String("gain_") + String(i), 1}, division->getName() + " gain", 0.0f, 1.0f, 0.5f);
+    for (int i = 0; i < 10; ++i)
+    {
+        auto param = std::make_unique<AudioParameterFloat>(
+            ParameterID{ "gain_" + String(i), 1 },
+            "Division " + String(i + 1) + " gain",
+            0.0f, 1.0f, 0.5f);
         auto* ptr = param.get();
         processor.addParameter(param.release());
         divisionsGain.push_back(ptr);
-        division->setParamGain(ptr);
     }
+
+    rebindDivisionGains();
 }
 
 var Parameters::toVar() const
@@ -94,4 +97,12 @@ void Parameters::fromVar(const var& v)
             }
         }
     }
+}
+
+void Parameters::rebindDivisionGains()
+{
+    auto& engine = processor.getEngine();
+
+    for (int i = 0; i < engine.getDivisionCount() && i < (int)divisionsGain.size(); ++i)
+        engine.getDivisionByIndex(i)->setParamGain(divisionsGain[(size_t)i]);
 }

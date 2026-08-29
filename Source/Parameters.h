@@ -40,4 +40,6 @@ struct Parameters
 
     juce::var toVar() const;
     void fromVar(const juce::var& v);
+
+    void rebindDivisionGains();
 };

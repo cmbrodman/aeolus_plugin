@@ -231,13 +231,24 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
                     auto& box = CallOutBox::launchAsynchronously(std::move(content), _settingsButton.getBounds(), this);
                     contentPtr->onCancel = [&box] { box.dismiss(); };
                     contentPtr->onOk = [&box, contentPtr, this] {
-                        _divisionViews.clear();
-                        _divisionsComponent.removeAllChildren();
-                        _audioProcessor.getEngine().applyDivisionLayout(
-                            contentPtr->getCount(), contentPtr->getNames());
-                        populateDivisions();
-                        resized();
+                        const int count = contentPtr->getCount();
+                        const auto names = contentPtr->getNames();
                         box.dismiss();
+
+                        juce::MessageManager::callAsync([this, count, names] {
+                            _audioProcessor.suspendProcessing(true);
+
+                            _divisionViews.clear();
+                            _divisionsComponent.removeAllChildren();
+
+                            _audioProcessor.getEngine().applyDivisionLayout(count, names);
+                            _audioProcessor.getParametersContainer().rebindDivisionGains();
+
+                            populateDivisions();
+                            resized();
+
+                            _audioProcessor.suspendProcessing(false);
+                        });
                     };
                 }
             });
