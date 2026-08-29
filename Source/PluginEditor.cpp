@@ -31,6 +31,8 @@
 
 #include "ui/StopEditorComponent.h"
 
+#include "ui/CouplerEditorComponent.h"
+
 using namespace juce;
 
 //==============================================================================
@@ -184,6 +186,7 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
         menu.addItem(2, "MIDI Settings");
         menu.addItem(3, "Division Editor");
         menu.addItem(4, "Stop Editor");
+        menu.addItem(5, "Coupler Editor");
 
         menu.showMenuAsync(PopupMenu::Options().withTargetComponent(_settingsButton),
             [this](int result)
@@ -272,6 +275,33 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
                             _divisionViews.clear();
                             _divisionsComponent.removeAllChildren();
                             _audioProcessor.getEngine().applyDivisionStops(divIdx, pipes);
+                            _audioProcessor.getParametersContainer().rebindDivisionGains();
+                            populateDivisions();
+                            resized();
+                            _audioProcessor.suspendProcessing(false);
+                        });
+                    };
+                }
+                else if (result == 5)
+                {
+                    auto content = std::make_unique<ui::StopEditorComponent>(_audioProcessor.getEngine());
+                    content->setSize(540, 560);
+                    auto* contentPtr = content.get();
+
+                    auto& box = CallOutBox::launchAsynchronously(std::move(content), _settingsButton.getBounds(), this);
+                    contentPtr->onCancel = [&box] { box.dismiss(); };
+                    contentPtr->onOk = [&box, contentPtr, this] {
+                        const int src = contentPtr->getSourceIndex();
+                        const bool hasBass = contentPtr->getHasBassCoupler();
+                        const auto specs = contentPtr->getSpecs();
+                        box.dismiss();
+
+                        juce::MessageManager::callAsync([this, divIdx, pipes] {
+                            _audioProcessor.suspendProcessing(true);
+                            _divisionViews.clear();
+                            _divisionsComponent.removeAllChildren();
+                            _audioProcessor.getEngine().applyCouplerLayout(
+                                src, hasBass, specs);
                             _audioProcessor.getParametersContainer().rebindDivisionGains();
                             populateDivisions();
                             resized();

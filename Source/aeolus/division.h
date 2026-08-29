@@ -53,12 +53,20 @@ public:
     };
 
     /// Link with another division.
-    struct Link
+     struct Link
     {
         Division* division;
         bool enabled = false;
+        int octaveShift = 0;     // -12, 0, +12
+        bool passThrough = false;
     };
 
+    struct LinkSpec
+    {
+        juce::String targetName;
+        int octaveShift = 0;
+        bool passThrough = false;
+    };
     /// Volume level
     struct Level
     {
@@ -135,14 +143,18 @@ public:
     bool isTremulantEnabled() const noexcept { return _tremulantEnabled; }
     void setTremulantEnabled(bool ena) noexcept;
 
+    bool hasBassCoupler() const noexcept { return _hasBassCoupler; }
+    void setHasBassCoupler(bool v) noexcept { _hasBassCoupler = v; }
+    bool isPedal() const;
+
     float getTremulantLevel(bool update = true);
 
     //------------------------------------------------------
 
     // All the following methods must be called on the audio thread.
 
-    void noteOn(int note, int midiChannel);
-    void noteOff(int note, int midiChannel);
+    void noteOn(int note, int midiChannel, bool followLinks = true);
+    void noteOff(int note, int midiChannel, bool followLinks = true);
     void allNotesOff();
 
     void handleControlMessage(const juce::MidiMessage& msg);
@@ -195,13 +207,17 @@ private:
 
     bool isAlreadyVoiced(int stopIndex, int node);
 
+    bool _hasBassCoupler = false;
+    void triggerNoteInternal(int note);
+    void releaseNoteInternal(int note);
+
     Engine& _engine;
 
     juce::String _name;     ///< The division name.
     juce::String _mnemonic; ///< Short mnemonic name.
 
     /// List of linked divisions names.
-    juce::StringArray _linkedDivisionNames;
+    juce::StringArray  std::vector<LinkSpec> _linkSpecs;;
     std::vector<Link> _linkedDivisions;
     std::vector<Division*> _linkedFromDivisions;
 

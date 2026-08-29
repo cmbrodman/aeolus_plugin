@@ -777,6 +777,84 @@ void Engine::process(AudioBuffer<float>& out, bool isNonRealtime)
     _volumeLevel.right = _volumeLevel.left;
 }
 
+bool Engine::isPedalDivision(const Division* d) const
+{
+    if (d == nullptr)
+        return false;
+
+    bool anyNamed = false;
+    for (auto* x : _divisions)
+        if (x->getName().containsIgnoreCase("Pedal"))
+            anyNamed = true;
+
+    if (anyNamed)
+        return d->getName().containsIgnoreCase("Pedal");
+
+    return _divisions.getLast() == d;
+}
+
+Division* Engine::getPedalDivision()
+{
+    for (auto* d : _divisions)
+        if (isPedalDivision(d))
+            return d;
+    return nullptr;
+}
+
+void Engine::applyCouplerLayout(int sourceIndex, bool hasBassCoupler,
+                               const std::vector<Division::LinkSpec>& specs)
+{
+    allNotesOff();
+    ensureOrganDataFiles();
+    const auto configFile = getCustomOrganConfigFile();
+    if (!configFile.existsAsFile())
+        return;
+
+    var config = JSON::parse(configFile.loadFileAsString());
+    auto* obj = config.getDynamicObject();
+    if (obj == nullptr)
+        return;
+
+    auto divisionsVar = obj->getProperty("divisions");
+    auto* arr = divisionsVar.getArray();
+    if (arr == nullptr || !isPositiveAndBelow(sourceIndex, arr->size()))
+        return;
+
+    auto* divObj = arr->getReference(sourceIndex).getDynamicObject();
+    if (divObj == nullptr)
+        return;
+
+    Array<var> links;
+    for (const auto& spec : specs)
+    {
+        auto* o = new DynamicObject();
+        o->setProperty("to", spec.targetName);
+        o->setProperty("octave", spec.octaveShift / 12);
+        o->setProperty("passthrough", spec.passThrough);
+        links.add(var(o));
+    }
+
+    divObj->setProperty("links", links);
+    divObj->setProperty("has_bass_coupler", hasBassCoupler);
+    obj->setProperty("divisions", divisionsVar);
+    configFile.replaceWithText(JSON::toString(config, true));
+
+    _divisions.clear();
+    {
+        FileInputStream stream(configFile);
+        loadDivisionsFromConfig(stream);
+    }
+    for (auto* division : _divisions)
+        division->clearLinkedDivisions();
+    for (auto* division : _divisions)
+        division->populateLinkedDivisions();
+    for (auto* division : _divisions)
+        division->ensurePresets();
+    if (_sequencer != nullptr)
+        _sequencer->initFromEngine();
+    requestSaveOrganState();
+}
+
 void Engine::processMIDIMessage(const MidiMessage& message)
 {
     // Process global CCs

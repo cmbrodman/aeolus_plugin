@@ -20,6 +20,7 @@
 #include "globals.h"
 #include "division.h"
 #include "engine.h"
+#include <algorithm>
 
 using namespace juce;
 
@@ -29,7 +30,7 @@ Division::Division(Engine& engine, const String& name)
     : _engine{engine}
     , _name{name}
     , _mnemonic{name}
-    , _linkedDivisionNames{}
+    , _linkSpecs{}
     , _linkedDivisions{}
     , _hasSwell{false}
     , _hasTremulant{false}
@@ -68,10 +69,45 @@ void Division::initFromVar(const var& v)
         _name = obj->getProperty("name");
         _mnemonic = obj->getProperty("mnemonic");
 
-        if (const auto* link = obj->getProperty("link").getArray()) {
-            for (const auto& item : *link)
-                _linkedDivisionNames.add(item.toString());
+        _linkSpecs.clear();
+
+        if (const auto* links = obj->getProperty("links").getArray())
+        {
+            for (const auto& item : *links)
+            {
+                LinkSpec spec;
+                if (auto* o = item.getDynamicObject())
+                {
+                    spec.targetName = o->getProperty("to").toString();
+                    spec.octaveShift = 12 * (int)o->getProperty("octave");
+                    spec.passThrough = (bool)o->getProperty("passthrough");
+                }
+                else
+                {
+                    spec.targetName = item.toString();
+                }
+                if (spec.targetName.isNotEmpty())
+                    _linkSpecs.push_back(spec);
+            }
         }
+        else if (const auto* link = obj->getProperty("link").getArray())
+        {
+            for (const auto& item : *link)
+            {
+                LinkSpec spec;
+                spec.targetName = item.toString();
+                spec.passThrough = true;
+                _linkSpecs.push_back(spec);
+            }
+        }
+
+        if (obj->hasProperty("has_bass_coupler"))
+            _hasBassCoupler = (bool)obj->getProperty("has_bass_coupler");
+        else
+            _hasBassCoupler = !_name.containsIgnoreCase("Pedal");
+
+        _hasSwell = obj->getProperty("swell");
+        _hasTremulant = obj->getProperty("tremulant");
 
         _hasSwell = obj->getProperty("swell");
         _hasTremulant = obj->getProperty("tremulant");
@@ -246,11 +282,16 @@ void Division::clearLinkedDivisions()
 
 void Division::populateLinkedDivisions()
 {
-    for (const auto& name : _linkedDivisionNames) {
-        if (auto* division = _engine.getDivisionByName(name)) {
-            Link link{ division, false };
+    for (const auto& spec : _linkSpecs)
+    {
+        if (auto* division = _engine.getDivisionByName(spec.targetName))
+        {
+            Link link{ division, false, spec.octaveShift, spec.passThrough };
             _linkedDivisions.push_back(link);
-            division->_linkedFromDivisions.push_back(this);
+            if (std::find(division->_linkedFromDivisions.begin(),
+                          division->_linkedFromDivisions.end(), this)
+                == division->_linkedFromDivisions.end())
+                division->_linkedFromDivisions.push_back(this);
         }
     }
 }
@@ -424,7 +465,34 @@ float Division::getTremulantLevel(bool update)
     return level;
 }
 
-void Division::noteOn(int note, int midiChannel)
+bool Division::isPedal() const
+{
+    return _engine.isPedalDivision(this);
+}
+
+void Division::triggerNoteInternal(int note)
+{
+    if (note < 0 || note >= TOTAL_NOTES)
+        return;
+
+    for (int stopIndex = 0; stopIndex < (int)_stops.size(); ++stopIndex)
+        triggerVoicesForStop(stopIndex, note);
+}
+
+void Division::releaseNoteInternal(int note)
+{
+    auto* voice = _activeVoices.first();
+
+    while (voice != nullptr)
+    {
+        if (voice->isForNote(note))
+            voice->release();
+
+        voice = voice->next();
+    }
+}
+
+void Division::noteOn(int note, int midiChannel, bool followLinks)
 {
     if (hasBeenTriggered())
         return;
@@ -434,27 +502,31 @@ void Division::noteOn(int note, int midiChannel)
 
     _triggerFlag = true;
 
-    for (int stopIndex = 0; stopIndex < (int)_stops.size(); ++stopIndex)
-        triggerVoicesForStop(stopIndex, note);
+    triggerNoteInternal(note);
 
-    if (midiChannel != 0) {
-        // Update keys state only when triggered by the assigned MIDI channel
+    if (midiChannel != 0)
         _keysState.set(note);
-    }
 
-    // Forward to the linked divisions
-    for (auto& link : _linkedDivisions) {
-        if (link.enabled) {
-            link.division->noteOn(note, 0);
+    if (followLinks)
+    {
+        for (auto& link : _linkedDivisions)
+        {
+            if (!link.enabled)
+                continue;
+
+            const int n = note + link.octaveShift;
+            if (link.division == this)
+                triggerNoteInternal(n);
+            else
+                link.division->noteOn(n, 0, link.passThrough);
         }
     }
 
- // === Bass Coupler logic ===
     if (_bassCouplerEnabled && midiChannel != 0)
     {
         if (_bassCouplerNote < 0 || note < _bassCouplerNote)
         {
-            if (auto* pedal = _engine.getDivisionByName("Pedal"))
+            if (auto* pedal = _engine.getPedalDivision())
             {
                 if (_bassCouplerNote >= 0)
                 {
@@ -470,7 +542,7 @@ void Division::noteOn(int note, int midiChannel)
     }
 }
 
-void Division::noteOff(int note, int midiChannel)
+void Division::noteOff(int note, int midiChannel, bool followLinks)
 {
     if (hasBeenTriggered())
         return;
@@ -480,33 +552,31 @@ void Division::noteOff(int note, int midiChannel)
 
     _triggerFlag = true;
 
-    auto* voice = _activeVoices.first();
+    releaseNoteInternal(note);
 
-    while (voice != nullptr) {
-        if (voice->isForNote(note))
-            voice->release();
-
-        voice = voice->next();
-    }
-
-    if (midiChannel != 0) {
-        // Update keys state only when triggered by the assigned MIDI channel.
+    if (midiChannel != 0)
         _keysState.reset(note);
-    }
 
-    // Forward to the linked divisions
-    for (auto& link : _linkedDivisions) {
-        if (link.enabled) {
-            link.division->noteOff(note, 0);
+    if (followLinks)
+    {
+        for (auto& link : _linkedDivisions)
+        {
+            if (!link.enabled)
+                continue;
+
+            const int n = note + link.octaveShift;
+            if (link.division == this)
+                releaseNoteInternal(n);
+            else
+                link.division->noteOff(n, 0, link.passThrough);
         }
     }
 
-// === Bass Coupler logic ===
     if (_bassCouplerEnabled && midiChannel != 0)
     {
         if (note == _bassCouplerNote)
         {
-            if (auto* pedal = _engine.getDivisionByName("Pedal"))
+            if (auto* pedal = _engine.getPedalDivision())
             {
                 pedal->noteOff(_bassCouplerNote, 0);
                 pedal->forceKeyState(_bassCouplerNote, false);
@@ -818,7 +888,7 @@ void Division::setBassCouplerEnabled(bool ena)
 
     if (!_bassCouplerEnabled && _bassCouplerNote >= 0)
     {
-        if (auto* pedal = _engine.getDivisionByName("Pedal"))
+        if (auto* pedal = _engine.getPedalDivision())
             pedal->noteOff(_bassCouplerNote, 0);
 
         _bassCouplerNote = -1;

@@ -225,6 +225,11 @@ public:
 
     Engine();
 
+    bool isPedalDivision(const Division* d) const;
+        Division* getPedalDivision();
+        void applyCouplerLayout(int sourceIndex, bool hasBassCoupler,
+                                const std::vector<Division::LinkSpec>& specs);
+
     /**
      * This method returns external processing sample rate as mandated
      * by the plugin host. Internally the organ engine performs processing

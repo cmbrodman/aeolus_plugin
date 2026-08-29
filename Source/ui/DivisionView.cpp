@@ -67,7 +67,7 @@ DivisionView::DivisionView(aeolus::Division* division)
     }
 
             // Bass Coupler button (only for manuals, not for Pedal)
-    if (_division->getName() != "Pedal")
+    if (_division->hasBassCoupler())
     {
         _bassCouplerButton.setButtonText("Bass");
         _bassCouplerButton.setClickingTogglesState(true);
@@ -84,7 +84,7 @@ DivisionView::DivisionView(aeolus::Division* division)
         addAndMakeVisible(_bassCouplerButton);
     }
             // Panic button only on Pedal division
-    if (_division->getName() == "Pedal")
+    if (_division->isPedal())
     {
         _panicButton.setButtonText("PANIC");
         _panicButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
@@ -115,7 +115,7 @@ void DivisionView::update()
         b->setToggleState(enabled, juce::dontSendNotification);
     }
 
-    if (_division->getName() != "Pedal")
+    if (_division->hasBassCoupler())
         _bassCouplerButton.setToggleState(_division->isBassCouplerEnabled(), juce::dontSendNotification);
 
     updatePresetButtons();
@@ -131,7 +131,7 @@ void DivisionView::cancelAllStops()
         _stopButtons.getUnchecked(i)->update();
     }
 
-    if (_division->getName() != "Pedal")
+    if (_division->hasBassCoupler())
             _division->setBassCouplerEnabled(false);
 
     updatePresetButtons();
@@ -196,7 +196,7 @@ void DivisionView::resized()
     _controlPanel.setBounds(getWidth() - controlPanelWidth, 0, controlPanelWidth, getHeight());
 
     // --- Bass button (manuals only) ---
-    if (_division->getName() != "Pedal")
+    if (_division->hasBassCoupler())
     {
         const int buttonWidth = controlPanelWidth - 3 * margin - 15;
         _bassCouplerButton.setBounds(
@@ -207,7 +207,7 @@ void DivisionView::resized()
         );
     }
 
-    if (_division->getName() == "Pedal")
+    if (_division->isPedal())
     {
         const int margin = 10;
         const int buttonWidth = controlPanelWidth - 3 * margin - 15; // same as Bass/Tremulant
@@ -291,7 +291,15 @@ void DivisionView::populateLinkButtons()
     for (int i = 0; i < _division->getLinksCount(); ++i) {
         auto& link = _division->getLinkByIndex(i);
 
-        const String caption = _division->getMnemonic() + " + " + link.division->getMnemonic();
+        String oct;
+                if (link.octaveShift == 12)       oct = " 4'";
+                else if (link.octaveShift == -12) oct = " 16'";
+
+                String caption;
+                if (link.division == _division)
+                    caption = _division->getMnemonic() + oct;
+                else
+                    caption = _division->getMnemonic() + " + " + link.division->getMnemonic() + oct;
         auto button = std::make_unique<TextButton>(caption);
         auto* ptr = button.get();
         ptr->setColour(TextButton::textColourOffId, Colour(0x99, 0x99, 0x99));
