@@ -1064,6 +1064,38 @@ void Engine::populateDivisions()
     for (auto* division : _divisions)
         division->ensurePresets();
     }
+    auto infer = [](const String& pipe) -> Stop::Type
+        {
+            const auto n = pipe.toLowerCase();
+            if (n.contains("trumpet") || n.contains("trombone") || n.contains("bassoon")
+                || n.contains("oboe") || n.contains("clarinet") || n.contains("cromhorne")
+                || n.contains("vox") || n.contains("bombarde") || n.contains("cornopean")
+                || n.contains("posaune") || n.contains("fagott") || n.contains("krumm"))
+                return Stop::Type::Reed;
+            if (n.contains("gamba") || n.contains("violin") || n.contains("viola")
+                || n.contains("celest") || n.contains("salicion"))
+                return Stop::Type::String;
+            if (n.contains("flute") || n.contains("bourdon") || n.contains("rohr")
+                || n.contains("nasard") || n.contains("nazard") || n.contains("tierce")
+                || n.contains("larigot") || n.contains("sifflet") || n.contains("gemshorn")
+                || n.contains("melodia") || n.contains("quintaden"))
+                return Stop::Type::Flute;
+            return Stop::Type::Unknown;
+        };
+
+    for (auto* division : _divisions)
+    {
+        for (int i = 0; i < division->getStopsCount(); ++i)
+        {
+            auto& stop = division->getStopByIndex(i);
+            if (stop.getZones().empty() || stop.getZones()[0].rankwaves.empty())
+                continue;
+
+            const auto inferred = infer(stop.getZones()[0].rankwaves[0]->getStopName());
+            if (inferred != Stop::Type::Unknown)
+                stop.setType(inferred);
+        }
+    }
 }
 
 static juce::String romanDivisionName(int indexZeroBased)
@@ -1177,10 +1209,82 @@ void Engine::applyDivisionStops(int divisionIndex, const StringArray& pipeNames)
     Array<var> stops;
     auto* model = Model::getInstance();
 
+    auto inferType = [](const String& pipe) -> String
+    {
+        const auto n = pipe.toLowerCase();
+        if (n.contains("trumpet") || n.contains("trombone") || n.contains("bassoon")
+            || n.contains("oboe") || n.contains("clarinet") || n.contains("cromhorne")
+            || n.contains("vox") || n.contains("bombarde") || n.contains("cornopean")
+            || n.contains("posaune") || n.contains("fagott") || n.contains("krumm"))
+            return "reed";
+        if (n.contains("gamba") || n.contains("violin") || n.contains("viola")
+            || n.contains("celest") || n.contains("salicion"))
+            return "string";
+        if (n.contains("flute") || n.contains("bourdon") || n.contains("rohr")
+            || n.contains("nasard") || n.contains("nazard") || n.contains("tierce")
+            || n.contains("larigot") || n.contains("sifflet") || n.contains("gemshorn")
+            || n.contains("melodia") || n.contains("quintaden"))
+            return "flute";
+        return "principal";
+    };
+
+    auto firstPipeOf = [](const var& stopVar) -> String
+    {
+        if (auto* o = stopVar.getDynamicObject())
+        {
+            const auto p = o->getProperty("pipe");
+            if (p.isArray() && p.getArray()->size() > 0)
+                return (*p.getArray())[0].toString();
+            if (p.isString())
+                return p.toString();
+            if (auto* zones = o->getProperty("zones").getArray(); zones != nullptr && zones->size() > 0)
+                if (auto* z = zones->getUnchecked(0).getDynamicObject())
+                {
+                    const auto zp = z->getProperty("pipe");
+                    if (zp.isArray() && zp.getArray()->size() > 0)
+                        return (*zp.getArray())[0].toString();
+                    return zp.toString();
+                }
+        }
+        return {};
+    };
+
+    const Array<var>* oldStops = divObj->getProperty("stops").getArray();
+
     for (const auto& pipe : pipeNames)
     {
         if (pipe.isEmpty() || pipe == "(none)")
             continue;
+
+        var matched;
+        if (oldStops != nullptr)
+        {
+            for (const auto& oldStop : *oldStops)
+            {
+                const auto oldPipe = firstPipeOf(oldStop);
+                if (oldPipe == pipe || pipe.startsWith(oldPipe + "__"))
+                {
+                    matched = oldStop;
+                    break;
+                }
+            }
+        }
+
+        // Unchanged pipe (including mixtures) — keep type, name, chiff, zones
+        if (!matched.isVoid() && firstPipeOf(matched) == pipe)
+            {
+                if (auto* mo = matched.getDynamicObject())
+                {
+                    const String inferred = inferType(pipe);
+                    const String cur = mo->getProperty("type").toString();
+                    if (inferred != "principal")
+                        mo->setProperty("type", inferred);
+                    else if (cur.isEmpty())
+                        mo->setProperty("type", "principal");
+                }
+                stops.add(matched);
+                continue;
+            }
 
         auto* synth = model->getStopByName(pipe);
         String footage = "8'";
@@ -1202,14 +1306,26 @@ void Engine::applyDivisionStops(int divisionIndex, const StringArray& pipeNames)
         }
 
         String display = pipe;
-        if (synth != nullptr && synth->getMnemonic().isNotEmpty())
+        String type = inferType(pipe);
+        float chiff = 0.5f;
+
+        if (auto* mo = matched.getDynamicObject())
+        {
+            type = mo->getProperty("type").toString();
+            if (mo->hasProperty("chiff"))
+                chiff = (float)mo->getProperty("chiff");
+            display = mo->getProperty("name").toString().upToFirstOccurrenceOf("\n", false, false);
+        }
+        else if (synth != nullptr && synth->getMnemonic().isNotEmpty())
+        {
             display = synth->getMnemonic();
+        }
 
         auto* s = new DynamicObject();
         s->setProperty("name", display + "\n" + footage);
-        s->setProperty("type", "principal");
+        s->setProperty("type", type);
         s->setProperty("pipe", pipe);
-        s->setProperty("chiff", 0.5);
+        s->setProperty("chiff", chiff);
         stops.add(var(s));
     }
 

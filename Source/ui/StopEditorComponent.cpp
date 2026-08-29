@@ -160,7 +160,7 @@ String StopEditorComponent::currentPipeOfStop(const aeolus::Stop& stop)
     return stop.getZones()[0].rankwaves[0]->getStopName();
 }
 
-const StopFootage* StopEditorComponent::footageFromFnFd
+const StopFootage* StopEditorComponent::footageFromFnFd(int fn, int fd)
 {
     for (auto& f : kFootages)
         if (f.fn == fn && f.fd == fd)
