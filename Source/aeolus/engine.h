@@ -361,6 +361,8 @@ public:
     
     void applyDivisionLayout(int count, const juce::StringArray& names);
 
+    void applyDivisionStops(int divisionIndex, const juce::StringArray& pipeNames);
+
     void setWindowSize(int width, int height);
         int getWindowWidth() const noexcept { return _windowWidth; }
         int getWindowHeight() const noexcept { return _windowHeight; }

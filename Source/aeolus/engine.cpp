@@ -1149,6 +1149,92 @@ void Engine::applyDivisionLayout(int count, const juce::StringArray& names)
     requestSaveOrganState();
 }
 
+void Engine::applyDivisionStops(int divisionIndex, const StringArray& pipeNames)
+{
+    allNotesOff();
+    ensureOrganDataFiles();
+
+    const auto configFile = getCustomOrganConfigFile();
+    var config;
+    if (configFile.existsAsFile())
+        config = JSON::parse(configFile.loadFileAsString());
+    else
+        return;
+
+    auto* obj = config.getDynamicObject();
+    if (obj == nullptr)
+        return;
+
+    auto divisionsVar = obj->getProperty("divisions");
+    auto* arr = divisionsVar.getArray();
+    if (arr == nullptr || !isPositiveAndBelow(divisionIndex, arr->size()))
+        return;
+
+    auto* divObj = arr->getReference(divisionIndex).getDynamicObject();
+    if (divObj == nullptr)
+        return;
+
+    Array<var> stops;
+    auto* model = Model::getInstance();
+
+    for (const auto& pipe : pipeNames)
+    {
+        if (pipe.isEmpty() || pipe == "(none)")
+            continue;
+
+        auto* synth = model->getStopByName(pipe);
+        String footage = "8'";
+        if (synth != nullptr)
+        {
+            const int fn = synth->getFn();
+            const int fd = synth->getFd();
+            if      (fn == 1 && fd == 4) footage = "32'";
+            else if (fn == 1 && fd == 2) footage = "16'";
+            else if (fn == 3 && fd == 4) footage = "10 2/3'";
+            else if (fn == 1 && fd == 1) footage = "8'";
+            else if (fn == 3 && fd == 2) footage = "5 1/3'";
+            else if (fn == 2 && fd == 1) footage = "4'";
+            else if (fn == 3 && fd == 1) footage = "2 2/3'";
+            else if (fn == 4 && fd == 1) footage = "2'";
+            else if (fn == 5 && fd == 1) footage = "1 3/5'";
+            else if (fn == 6 && fd == 1) footage = "1 1/3'";
+            else if (fn == 8 && fd == 1) footage = "1'";
+        }
+
+        String display = pipe;
+        if (synth != nullptr && synth->getMnemonic().isNotEmpty())
+            display = synth->getMnemonic();
+
+        auto* s = new DynamicObject();
+        s->setProperty("name", display + "\n" + footage);
+        s->setProperty("type", "principal");
+        s->setProperty("pipe", pipe);
+        s->setProperty("chiff", 0.5);
+        stops.add(var(s));
+    }
+
+    divObj->setProperty("stops", stops);
+    obj->setProperty("divisions", divisionsVar);
+    configFile.replaceWithText(JSON::toString(config, true));
+
+    _divisions.clear();
+    {
+        FileInputStream stream(configFile);
+        loadDivisionsFromConfig(stream);
+    }
+
+    for (auto* division : _divisions)
+        division->clearLinkedDivisions();
+    for (auto* division : _divisions)
+        division->populateLinkedDivisions();
+    for (auto* division : _divisions)
+        division->ensurePresets();
+    if (_sequencer != nullptr)
+        _sequencer->initFromEngine();
+
+    requestSaveOrganState();
+}
+
 // @internal Helper to populate key switches from a single number or a list
 static void populateKeySwitchesVector(std::vector<int>& switches, const var& v)
 {
