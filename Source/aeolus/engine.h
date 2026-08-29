@@ -32,11 +32,10 @@
 #include "aeolus/dsp/convolver.h"
 #include "aeolus/dsp/interpolator.h"
 #include "aeolus/dsp/limiter.h"
-
 #include "mts/libMTSClient.h"
-
 #include <optional>
 #include <vector>
+#include <map>
 
 AEOLUS_NAMESPACE_BEGIN
 
@@ -228,7 +227,15 @@ public:
     bool isPedalDivision(const Division* d) const;
         Division* getPedalDivision();
         void applyCouplerLayout(int sourceIndex, bool hasBassCoupler,
-                                const std::vector<Division::LinkSpec>& specs);
+                            const std::vector<Division::LinkSpec>& specs);
+
+    struct CouplerEdits
+    {
+        int sourceIndex = 0;
+        bool hasBassCoupler = false;
+        std::vector<Division::LinkSpec> specs;
+    };
+    void applyCouplerLayouts(const juce::Array<CouplerEdits>& edits);
 
     /**
      * This method returns external processing sample rate as mandated

@@ -217,7 +217,7 @@ private:
     juce::String _mnemonic; ///< Short mnemonic name.
 
     /// List of linked divisions names.
-    juce::StringArray  std::vector<LinkSpec> _linkSpecs;;
+    std::vector<LinkSpec> _linkSpecs;
     std::vector<Link> _linkedDivisions;
     std::vector<Division*> _linkedFromDivisions;
 

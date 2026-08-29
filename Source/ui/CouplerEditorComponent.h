@@ -2,6 +2,7 @@
 
 #include <functional>
 #include "aeolus/engine.h"
+#include <map>
 
 namespace ui {
 
@@ -10,9 +11,14 @@ class CouplerEditorComponent : public juce::Component
 public:
     explicit CouplerEditorComponent(aeolus::Engine& engine);
 
-    int getSourceIndex() const;
-    bool getHasBassCoupler() const;
-    std::vector<aeolus::Division::LinkSpec> getSpecs() const;
+    struct DivisionEdits
+    {
+        int sourceIndex = 0;
+        bool hasBass = false;
+        std::vector<aeolus::Division::LinkSpec> specs;
+    };
+
+    juce::Array<DivisionEdits> getAllEdits();
 
     void resized() override;
 
@@ -31,6 +37,12 @@ private:
     };
 
     void loadSource();
+    void storeCurrent();
+    int getSourceIndex() const;
+    std::vector<aeolus::Division::LinkSpec> specsFromRows(int sourceIndex) const;
+
+    int _shownSource { -1 };
+    std::map<int, DivisionEdits> _pending;
 
     aeolus::Engine& _engine;
     juce::Label _titleLabel;

@@ -850,9 +850,67 @@ void Engine::applyCouplerLayout(int sourceIndex, bool hasBassCoupler,
         division->populateLinkedDivisions();
     for (auto* division : _divisions)
         division->ensurePresets();
+    
+    void Engine::applyCouplerLayouts(const Array<CouplerEdits>& edits)
+    {
+    allNotesOff();
+    ensureOrganDataFiles();
+    const auto configFile = getCustomOrganConfigFile();
+    if (!configFile.existsAsFile())
+        return;
+
+    var config = JSON::parse(configFile.loadFileAsString());
+    auto* obj = config.getDynamicObject();
+    if (obj == nullptr)
+        return;
+
+    auto divisionsVar = obj->getProperty("divisions");
+    auto* arr = divisionsVar.getArray();
+    if (arr == nullptr)
+        return;
+
+    for (const auto& edit : edits)
+    {
+        if (!isPositiveAndBelow(edit.sourceIndex, arr->size()))
+            continue;
+
+        auto* divObj = arr->getReference(edit.sourceIndex).getDynamicObject();
+        if (divObj == nullptr)
+            continue;
+
+        Array<var> links;
+        for (const auto& spec : edit.specs)
+        {
+            auto* o = new DynamicObject();
+            o->setProperty("to", spec.targetName);
+            o->setProperty("octave", spec.octaveShift / 12);
+            o->setProperty("passthrough", spec.passThrough);
+            links.add(var(o));
+        }
+
+        divObj->setProperty("links", links);
+        divObj->setProperty("has_bass_coupler", edit.hasBassCoupler);
+    }
+
+
+    obj->setProperty("divisions", divisionsVar);
+    configFile.replaceWithText(JSON::toString(config, true));
+
+    _divisions.clear();
+    {
+        FileInputStream stream(configFile);
+        loadDivisionsFromConfig(stream);
+    }
+    for (auto* division : _divisions)
+        division->clearLinkedDivisions();
+    for (auto* division : _divisions)
+        division->populateLinkedDivisions();
+    for (auto* division : _divisions)
+        division->ensurePresets();
     if (_sequencer != nullptr)
         _sequencer->initFromEngine();
     requestSaveOrganState();
+    }
 }
 
 void Engine::processMIDIMessage(const MidiMessage& message)

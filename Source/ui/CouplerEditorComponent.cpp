@@ -34,7 +34,10 @@ CouplerEditorComponent::CouplerEditorComponent(aeolus::Engine& engine)
     if (_divisionBox.getNumItems() > 0)
         _divisionBox.setSelectedItemIndex(0, dontSendNotification);
 
-    _divisionBox.onChange = [this] { loadSource(); };
+    _divisionBox.onChange = [this] {
+        storeCurrent();
+        loadSource();
+    };
 
     addAndMakeVisible(_okButton);
     addAndMakeVisible(_cancelButton);
@@ -51,15 +54,22 @@ int CouplerEditorComponent::getSourceIndex() const
     return jmax(0, _divisionBox.getSelectedId() - 1);
 }
 
-bool CouplerEditorComponent::getHasBassCoupler() const
+void CouplerEditorComponent::storeCurrent()
 {
-    return _bassButton.getToggleState();
+    if (_shownSource < 0)
+        return;
+
+    DivisionEdits e;
+    e.sourceIndex = _shownSource;
+    e.hasBass = _bassButton.getToggleState();
+    e.specs = specsFromRows(_shownSource);
+    _pending[_shownSource] = std::move(e);
 }
 
-std::vector<aeolus::Division::LinkSpec> CouplerEditorComponent::getSpecs() const
+std::vector<aeolus::Division::LinkSpec> CouplerEditorComponent::specsFromRows(int sourceIndex) const
 {
     std::vector<aeolus::Division::LinkSpec> specs;
-    auto* src = _engine.getDivisionByIndex(getSourceIndex());
+    auto* src = _engine.getDivisionByIndex(sourceIndex);
 
     for (auto* row : _rows)
     {
@@ -82,14 +92,29 @@ std::vector<aeolus::Division::LinkSpec> CouplerEditorComponent::getSpecs() const
     return specs;
 }
 
+juce::Array<CouplerEditorComponent::DivisionEdits> CouplerEditorComponent::getAllEdits()
+{
+    storeCurrent();
+
+    juce::Array<DivisionEdits> out;
+    for (auto& kv : _pending)
+        out.add(kv.second);
+    return out;
+}
+
 void CouplerEditorComponent::loadSource()
 {
     _rows.clear();
-    auto* src = _engine.getDivisionByIndex(getSourceIndex());
+    _shownSource = getSourceIndex();
+    auto* src = _engine.getDivisionByIndex(_shownSource);
     if (src == nullptr)
         return;
 
-    _bassButton.setToggleState(src->hasBassCoupler(), dontSendNotification);
+    const bool fromPending = _pending.count(_shownSource) > 0;
+    if (fromPending)
+        _bassButton.setToggleState(_pending[_shownSource].hasBass, dontSendNotification);
+    else
+        _bassButton.setToggleState(src->hasBassCoupler(), dontSendNotification);
 
     for (int i = 0; i < _engine.getDivisionCount(); ++i)
     {
@@ -110,15 +135,34 @@ void CouplerEditorComponent::loadSource()
         row->sub.setVisible(!pedal);
         row->pass.setVisible(!pedal && !self);
 
-        for (int l = 0; l < src->getLinksCount(); ++l)
+        auto applySpec = [&](const aeolus::Division::LinkSpec& spec)
         {
-            auto& link = src->getLinkByIndex(l);
-            if (link.division != dest)
-                continue;
-            if (link.octaveShift == 0) row->unison.setToggleState(true, dontSendNotification);
-            if (link.octaveShift == 12) row->super.setToggleState(true, dontSendNotification);
-            if (link.octaveShift == -12) row->sub.setToggleState(true, dontSendNotification);
-            if (link.passThrough) row->pass.setToggleState(true, dontSendNotification);
+            if (spec.targetName != dest->getName())
+                return;
+            if (spec.octaveShift == 0) row->unison.setToggleState(true, dontSendNotification);
+            if (spec.octaveShift == 12) row->super.setToggleState(true, dontSendNotification);
+            if (spec.octaveShift == -12) row->sub.setToggleState(true, dontSendNotification);
+            if (spec.passThrough) row->pass.setToggleState(true, dontSendNotification);
+        };
+
+        if (fromPending)
+        {
+            for (const auto& spec : _pending[_shownSource].specs)
+                applySpec(spec);
+        }
+        else
+        {
+            for (int l = 0; l < src->getLinksCount(); ++l)
+            {
+                auto& link = src->getLinkByIndex(l);
+                if (link.division != dest)
+                    continue;
+                aeolus::Division::LinkSpec spec;
+                spec.targetName = dest->getName();
+                spec.octaveShift = link.octaveShift;
+                spec.passThrough = link.passThrough;
+                applySpec(spec);
+            }
         }
     }
     resized();

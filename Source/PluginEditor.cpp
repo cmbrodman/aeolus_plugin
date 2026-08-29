@@ -284,24 +284,31 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
                 }
                 else if (result == 5)
                 {
-                    auto content = std::make_unique<ui::StopEditorComponent>(_audioProcessor.getEngine());
-                    content->setSize(540, 560);
+                    auto content = std::make_unique<ui::CouplerEditorComponent>(_audioProcessor.getEngine());
+                    content->setSize(560, 420);
                     auto* contentPtr = content.get();
 
                     auto& box = CallOutBox::launchAsynchronously(std::move(content), _settingsButton.getBounds(), this);
                     contentPtr->onCancel = [&box] { box.dismiss(); };
                     contentPtr->onOk = [&box, contentPtr, this] {
-                        const int src = contentPtr->getSourceIndex();
-                        const bool hasBass = contentPtr->getHasBassCoupler();
-                        const auto specs = contentPtr->getSpecs();
+                        auto editsUi = contentPtr->getAllEdits();
                         box.dismiss();
 
-                        juce::MessageManager::callAsync([this, divIdx, pipes] {
+                        juce::Array<aeolus::Engine::CouplerEdits> edits;
+                        for (auto& e : editsUi)
+                        {
+                            aeolus::Engine::CouplerEdits ce;
+                            ce.sourceIndex = e.sourceIndex;
+                            ce.hasBassCoupler = e.hasBass;
+                            ce.specs = e.specs;
+                            edits.add(std::move(ce));
+                        }
+
+                        juce::MessageManager::callAsync([this, edits] {
                             _audioProcessor.suspendProcessing(true);
                             _divisionViews.clear();
                             _divisionsComponent.removeAllChildren();
-                            _audioProcessor.getEngine().applyCouplerLayout(
-                                src, hasBass, specs);
+                            _audioProcessor.getEngine().applyCouplerLayouts(edits);
                             _audioProcessor.getParametersContainer().rebindDivisionGains();
                             populateDivisions();
                             resized();
