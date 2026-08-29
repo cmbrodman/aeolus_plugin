@@ -1447,6 +1447,12 @@ void Engine::applyDivisionStops(int divisionIndex, const StringArray& pipeNames)
     requestSaveOrganState();
 }
 
+void Engine::applyDivisionStopsList(const Array<DivisionStopEdits>& edits)
+{
+    for (const auto& e : edits)
+        applyDivisionStops(e.divisionIndex, e.pipeNames);
+}
+
 // @internal Helper to populate key switches from a single number or a list
 static void populateKeySwitchesVector(std::vector<int>& switches, const var& v)
 {

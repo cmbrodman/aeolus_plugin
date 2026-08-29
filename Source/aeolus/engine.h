@@ -375,6 +375,13 @@ public:
 
     void applyDivisionStops(int divisionIndex, const juce::StringArray& pipeNames);
 
+    struct DivisionStopEdits
+        {
+            int divisionIndex = 0;
+            juce::StringArray pipeNames;
+        };
+        void applyDivisionStopsList(const juce::Array<DivisionStopEdits>& edits);
+
     void setWindowSize(int width, int height);
         int getWindowWidth() const noexcept { return _windowWidth; }
         int getWindowHeight() const noexcept { return _windowHeight; }

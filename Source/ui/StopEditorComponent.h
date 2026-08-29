@@ -2,6 +2,7 @@
 
 #include <functional>
 #include "aeolus/engine.h"
+#include <map>
 
 namespace ui {
 
@@ -17,9 +18,14 @@ class StopEditorComponent : public juce::Component
 public:
     explicit StopEditorComponent(aeolus::Engine& engine);
 
-    int getDivisionIndex() const;
-    int getStopCount() const;
-    juce::StringArray getPipeNames() const; // empty string = unused row
+    struct DivisionStopEdits
+    {
+        int divisionIndex = 0;
+        int stopCount = 1;
+        juce::StringArray pipes;
+    };
+
+    juce::Array<DivisionStopEdits> getAllEdits();
 
     void resized() override;
 
@@ -30,6 +36,14 @@ private:
 
     void rebuildRows();
     void loadDivisionIntoRows();
+    void storeCurrent();
+        int getDivisionIndex() const;
+        int getStopCount() const;
+        juce::StringArray getPipeNames() const;
+
+        int _shownDivision { -1 };
+        bool _reloading { false };
+        std::map<int, DivisionStopEdits> _pending;
     void populateStopCombo(juce::ComboBox& box, const juce::String& selected);
     void syncFootageFromPipe(int row);
     void applyFootageChange(int row);

@@ -265,16 +265,24 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
 
                     auto& box = CallOutBox::launchAsynchronously(std::move(content), _settingsButton.getBounds(), this);
                     contentPtr->onCancel = [&box] { box.dismiss(); };
-                    contentPtr->onOk = [&box, contentPtr, this] {
-                        const int divIdx = contentPtr->getDivisionIndex();
-                        const auto pipes = contentPtr->getPipeNames();
+                   contentPtr->onOk = [&box, contentPtr, this] {
+                        auto editsUi = contentPtr->getAllEdits();
                         box.dismiss();
 
-                        juce::MessageManager::callAsync([this, divIdx, pipes] {
+                        juce::Array<aeolus::Engine::DivisionStopEdits> edits;
+                        for (auto& e : editsUi)
+                        {
+                            aeolus::Engine::DivisionStopEdits d;
+                            d.divisionIndex = e.divisionIndex;
+                            d.pipeNames = e.pipes;
+                            edits.add(std::move(d));
+                        }
+
+                        juce::MessageManager::callAsync([this, edits] {
                             _audioProcessor.suspendProcessing(true);
                             _divisionViews.clear();
                             _divisionsComponent.removeAllChildren();
-                            _audioProcessor.getEngine().applyDivisionStops(divIdx, pipes);
+                            _audioProcessor.getEngine().applyDivisionStopsList(edits);
                             _audioProcessor.getParametersContainer().rebindDivisionGains();
                             populateDivisions();
                             resized();

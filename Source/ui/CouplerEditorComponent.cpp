@@ -35,8 +35,12 @@ CouplerEditorComponent::CouplerEditorComponent(aeolus::Engine& engine)
         _divisionBox.setSelectedItemIndex(0, dontSendNotification);
 
     _divisionBox.onChange = [this] {
+        if (_reloading)
+            return;
         storeCurrent();
+        _reloading = true;
         loadSource();
+        _reloading = false;
     };
 
     addAndMakeVisible(_okButton);
@@ -104,11 +108,41 @@ juce::Array<CouplerEditorComponent::DivisionEdits> CouplerEditorComponent::getAl
 
 void CouplerEditorComponent::loadSource()
 {
-    _rows.clear();
     _shownSource = getSourceIndex();
     auto* src = _engine.getDivisionByIndex(_shownSource);
     if (src == nullptr)
         return;
+
+    if (_rows.isEmpty())
+    {
+        for (int i = 0; i < _engine.getDivisionCount(); ++i)
+        {
+            auto* dest = _engine.getDivisionByIndex(i);
+            auto* row = _rows.add(new DestRow());
+            row->dest = dest;
+            row->name.setText(dest->getName(), dontSendNotification);
+            addAndMakeVisible(row->name);
+            addAndMakeVisible(row->unison);
+            addAndMakeVisible(row->super);
+            addAndMakeVisible(row->sub);
+            addAndMakeVisible(row->pass);
+
+            auto save = [this] { storeCurrent(); };
+            row->unison.onClick = save;
+            row->super.onClick = save;
+            row->sub.onClick = save;
+            row->pass.onClick = save;
+            _bassButton.onClick = save;
+        }
+    }
+
+    for (auto* row : _rows)
+    {
+        row->unison.setToggleState(false, dontSendNotification);
+        row->super.setToggleState(false, dontSendNotification);
+        row->sub.setToggleState(false, dontSendNotification);
+        row->pass.setToggleState(false, dontSendNotification);
+    }
 
     const bool fromPending = _pending.count(_shownSource) > 0;
     if (fromPending)
@@ -116,18 +150,9 @@ void CouplerEditorComponent::loadSource()
     else
         _bassButton.setToggleState(src->hasBassCoupler(), dontSendNotification);
 
-    for (int i = 0; i < _engine.getDivisionCount(); ++i)
+    for (auto* row : _rows)
     {
-        auto* dest = _engine.getDivisionByIndex(i);
-        auto* row = _rows.add(new DestRow());
-        row->dest = dest;
-        row->name.setText(dest->getName(), dontSendNotification);
-        addAndMakeVisible(row->name);
-        addAndMakeVisible(row->unison);
-        addAndMakeVisible(row->super);
-        addAndMakeVisible(row->sub);
-        addAndMakeVisible(row->pass);
-
+        auto* dest = row->dest;
         const bool self = (dest == src);
         const bool pedal = dest->isPedal();
         row->unison.setVisible(!self);

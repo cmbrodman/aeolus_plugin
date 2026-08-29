@@ -43,7 +43,14 @@ StopEditorComponent::StopEditorComponent(aeolus::Engine& engine)
     for (int i = 0; i < _engine.getDivisionCount(); ++i)
         _divisionBox.addItem(_engine.getDivisionByIndex(i)->getName(), i + 1);
     _divisionBox.setSelectedId(1, dontSendNotification);
-    _divisionBox.onChange = [this] { loadDivisionIntoRows(); };
+    _divisionBox.onChange = [this] {
+        if (_reloading)
+            return;
+        storeCurrent();
+        _reloading = true;
+        loadDivisionIntoRows();
+        _reloading = false;
+    };
 
     addAndMakeVisible(_countLabel);
     addAndMakeVisible(_countSlider);
@@ -113,6 +120,27 @@ StringArray StopEditorComponent::getPipeNames() const
     return names;
 }
 
+void StopEditorComponent::storeCurrent()
+{
+    if (_shownDivision < 0)
+        return;
+
+    DivisionStopEdits e;
+    e.divisionIndex = _shownDivision;
+    e.stopCount = getStopCount();
+    e.pipes = getPipeNames();
+    _pending[_shownDivision] = std::move(e);
+}
+
+juce::Array<StopEditorComponent::DivisionStopEdits> StopEditorComponent::getAllEdits()
+{
+    storeCurrent();
+    juce::Array<DivisionStopEdits> out;
+    for (auto& kv : _pending)
+        out.add(kv.second);
+    return out;
+}
+
 StringArray StopEditorComponent::scanStopNames() const
 {
     StringArray names;
@@ -177,20 +205,34 @@ String StopEditorComponent::footageSlug(const StopFootage& f)
 
 void StopEditorComponent::loadDivisionIntoRows()
 {
-    auto* div = _engine.getDivisionByIndex(getDivisionIndex());
+    _shownDivision = getDivisionIndex();
+    auto* div = _engine.getDivisionByIndex(_shownDivision);
     if (div == nullptr)
         return;
 
-    const int n = jlimit(1, 30, jmax(1, div->getStopsCount()));
+    const bool fromPending = _pending.count(_shownDivision) > 0;
+
+    int n = 1;
+    StringArray pipes;
+    if (fromPending)
+    {
+        n = _pending[_shownDivision].stopCount;
+        pipes = _pending[_shownDivision].pipes;
+    }
+    else
+    {
+        n = jmax(1, div->getStopsCount());
+        for (int i = 0; i < div->getStopsCount(); ++i)
+            pipes.add(currentPipeOfStop(div->getStopByIndex(i)));
+    }
+
+    n = jlimit(1, 30, n);
     _countSlider.setValue(n, dontSendNotification);
 
     _updating = true;
     for (int i = 0; i < 30; ++i)
     {
-        String pipe;
-        if (i < div->getStopsCount())
-            pipe = currentPipeOfStop(div->getStopByIndex(i));
-
+        String pipe = (i < pipes.size()) ? pipes[i] : String();
         populateStopCombo(*_stopBoxes[i], pipe);
         syncFootageFromPipe(i);
     }

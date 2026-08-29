@@ -44,6 +44,8 @@ private:
     int _shownSource { -1 };
     std::map<int, DivisionEdits> _pending;
 
+    bool _reloading { false };
+
     aeolus::Engine& _engine;
     juce::Label _titleLabel;
     juce::Label _divisionLabel;
