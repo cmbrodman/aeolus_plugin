@@ -1337,6 +1337,8 @@ void Engine::applyDivisionLayout(int count, const juce::StringArray& names)
 
     configFile.replaceWithText(JSON::toString(config, true));
 
+    const var savedState = getPersistentState();
+
     _divisions.clear();
     {
         FileInputStream stream(configFile);
@@ -1507,6 +1509,8 @@ void Engine::applyDivisionStops(int divisionIndex, const StringArray& pipeNames)
     divObj->setProperty("stops", stops);
     obj->setProperty("divisions", divisionsVar);
     configFile.replaceWithText(JSON::toString(config, true));
+
+    const var savedState = getPersistentState();
 
     _divisions.clear();
     {
