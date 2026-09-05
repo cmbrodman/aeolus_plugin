@@ -72,6 +72,8 @@ std::vector<aeolus::Division::LinkSpec> CouplerEditorComponent::specsFromRows(in
 {
     std::vector<aeolus::Division::LinkSpec> specs;
     auto* src = _engine.getDivisionByIndex(sourceIndex);
+    if (src == nullptr)
+        return specs;
 
     for (auto* row : _rows)
     {

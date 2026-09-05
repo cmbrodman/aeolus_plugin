@@ -265,30 +265,37 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
 
                     auto& box = CallOutBox::launchAsynchronously(std::move(content), _settingsButton.getBounds(), this);
                     contentPtr->onCancel = [&box] { box.dismiss(); };
-                   contentPtr->onOk = [&box, contentPtr, this] {
-                        auto editsUi = contentPtr->getAllEdits();
-                        box.dismiss();
+                    contentPtr->onOk = [this, contentPtr] {
+                                            auto editsUi = contentPtr->getAllEdits();
+                                            juce::Array<aeolus::Engine::DivisionStopEdits> edits;
+                                            for (auto& e : editsUi)
+                                            {
+                                                aeolus::Engine::DivisionStopEdits d;
+                                                d.divisionIndex = e.divisionIndex;
+                                                d.pipeNames = e.pipes;
+                                                edits.add(std::move(d));
+                                            }
 
-                        juce::Array<aeolus::Engine::DivisionStopEdits> edits;
-                        for (auto& e : editsUi)
-                        {
-                            aeolus::Engine::DivisionStopEdits d;
-                            d.divisionIndex = e.divisionIndex;
-                            d.pipeNames = e.pipes;
-                            edits.add(std::move(d));
-                        }
+                                            auto* box = contentPtr->findParentComponentOfClass<CallOutBox>();
+                                            Component::SafePointer<CallOutBox> safeBox(box);
+                                            Component::SafePointer<AeolusAudioProcessorEditor> safeEd(this);
 
-                        juce::MessageManager::callAsync([this, edits] {
-                            _audioProcessor.suspendProcessing(true);
-                            _divisionViews.clear();
-                            _divisionsComponent.removeAllChildren();
-                            _audioProcessor.getEngine().applyDivisionStopsList(edits);
-                            _audioProcessor.getParametersContainer().rebindDivisionGains();
-                            populateDivisions();
-                            resized();
-                            _audioProcessor.suspendProcessing(false);
-                        });
-                    };
+                                            MessageManager::callAsync([safeEd, safeBox, edits] {
+                                                if (safeBox != nullptr)
+                                                    safeBox->dismiss();
+                                                if (safeEd == nullptr)
+                                                    return;
+                                                auto* self = safeEd.getComponent();
+                                                self->_audioProcessor.suspendProcessing(true);
+                                                self->_divisionViews.clear();
+                                                self->_divisionsComponent.removeAllChildren();
+                                                self->_audioProcessor.getEngine().applyDivisionStopsList(edits);
+                                                self->_audioProcessor.getParametersContainer().rebindDivisionGains();
+                                                self->populateDivisions();
+                                                self->resized();
+                                                self->_audioProcessor.suspendProcessing(false);
+                                            });
+                                        };
                 }
                 else if (result == 5)
                 {
@@ -298,31 +305,38 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
 
                     auto& box = CallOutBox::launchAsynchronously(std::move(content), _settingsButton.getBounds(), this);
                     contentPtr->onCancel = [&box] { box.dismiss(); };
-                    contentPtr->onOk = [&box, contentPtr, this] {
-                        auto editsUi = contentPtr->getAllEdits();
-                        box.dismiss();
+                    contentPtr->onOk = [this, contentPtr] {
+                                            auto editsUi = contentPtr->getAllEdits();
+                                            juce::Array<aeolus::Engine::CouplerEdits> edits;
+                                            for (auto& e : editsUi)
+                                            {
+                                                aeolus::Engine::CouplerEdits ce;
+                                                ce.sourceIndex = e.sourceIndex;
+                                                ce.hasBassCoupler = e.hasBass;
+                                                ce.specs = e.specs;
+                                                edits.add(std::move(ce));
+                                            }
 
-                        juce::Array<aeolus::Engine::CouplerEdits> edits;
-                        for (auto& e : editsUi)
-                        {
-                            aeolus::Engine::CouplerEdits ce;
-                            ce.sourceIndex = e.sourceIndex;
-                            ce.hasBassCoupler = e.hasBass;
-                            ce.specs = e.specs;
-                            edits.add(std::move(ce));
-                        }
+                                            auto* box = contentPtr->findParentComponentOfClass<CallOutBox>();
+                                            Component::SafePointer<CallOutBox> safeBox(box);
+                                            Component::SafePointer<AeolusAudioProcessorEditor> safeEd(this);
 
-                        juce::MessageManager::callAsync([this, edits] {
-                            _audioProcessor.suspendProcessing(true);
-                            _divisionViews.clear();
-                            _divisionsComponent.removeAllChildren();
-                            _audioProcessor.getEngine().applyCouplerLayouts(edits);
-                            _audioProcessor.getParametersContainer().rebindDivisionGains();
-                            populateDivisions();
-                            resized();
-                            _audioProcessor.suspendProcessing(false);
-                        });
-                    };
+                                            MessageManager::callAsync([safeEd, safeBox, edits] {
+                                                if (safeBox != nullptr)
+                                                    safeBox->dismiss();
+                                                if (safeEd == nullptr)
+                                                    return;
+                                                auto* self = safeEd.getComponent();
+                                                self->_audioProcessor.suspendProcessing(true);
+                                                self->_divisionViews.clear();
+                                                self->_divisionsComponent.removeAllChildren();
+                                                self->_audioProcessor.getEngine().applyCouplerLayouts(edits);
+                                                self->_audioProcessor.getParametersContainer().rebindDivisionGains();
+                                                self->populateDivisions();
+                                                self->resized();
+                                                self->_audioProcessor.suspendProcessing(false);
+                                            });
+                                        };
                 }
             });
     };

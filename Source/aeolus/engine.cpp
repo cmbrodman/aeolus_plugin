@@ -1405,7 +1405,7 @@ void Engine::applyDivisionLayout(int count, const juce::StringArray& names)
     requestSaveOrganState();
 }
 
-void Engine::applyDivisionStops(int divisionIndex, const StringArray& pipeNames)
+void Engine::applyDivisionStops(int divisionIndex, const StringArray& pipeNames, bool reload)
 {
     allNotesOff();
     ensureOrganDataFiles();
@@ -1557,31 +1557,39 @@ void Engine::applyDivisionStops(int divisionIndex, const StringArray& pipeNames)
     obj->setProperty("divisions", divisionsVar);
     configFile.replaceWithText(JSON::toString(config, true));
 
-    const var savedState = getPersistentState();
+    if (!reload)
+        return;
 
-    _divisions.clear();
-    {
-        FileInputStream stream(configFile);
-        loadDivisionsFromConfig(stream);
+        const var savedState = getPersistentState();
+
+        _divisions.clear();
+        {
+            FileInputStream stream(configFile);
+            loadDivisionsFromConfig(stream);
+        }
+        for (auto* division : _divisions)
+            division->clearLinkedDivisions();
+        for (auto* division : _divisions)
+            division->populateLinkedDivisions();
+
+        setPersistentState(savedState);
+
+        for (auto* division : _divisions)
+            division->ensurePresets();
+        if (_sequencer != nullptr)
+            _sequencer->initFromEngine();
+        requestSaveOrganState();
     }
-    for (auto* division : _divisions)
-        division->clearLinkedDivisions();
-    for (auto* division : _divisions)
-        division->populateLinkedDivisions();
-
-    setPersistentState(savedState);
-
-    for (auto* division : _divisions)
-        division->ensurePresets();
-    if (_sequencer != nullptr)
-        _sequencer->initFromEngine();
-    requestSaveOrganState();
-}
 
 void Engine::applyDivisionStopsList(const Array<DivisionStopEdits>& edits)
 {
-    for (const auto& e : edits)
-        applyDivisionStops(e.divisionIndex, e.pipeNames);
+    if (edits.isEmpty())
+        return;
+
+    for (int i = 0; i < edits.size(); ++i)
+        applyDivisionStops(edits.getReference(i).divisionIndex,
+                           edits.getReference(i).pipeNames,
+                           i == edits.size() - 1);
 }
 
 // @internal Helper to populate key switches from a single number or a list

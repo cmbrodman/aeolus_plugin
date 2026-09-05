@@ -373,7 +373,7 @@ public:
     
     void applyDivisionLayout(int count, const juce::StringArray& names);
 
-    void applyDivisionStops(int divisionIndex, const juce::StringArray& pipeNames);
+    void applyDivisionStops(int divisionIndex, const juce::StringArray& pipeNames, bool reload = true);
 
     struct DivisionStopEdits
         {
