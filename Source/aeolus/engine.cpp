@@ -846,8 +846,13 @@ void Engine::applyCouplerLayouts(const Array<CouplerEdits>& edits)
         {
             auto* o = new DynamicObject();
             o->setProperty("to", spec.targetName);
-                        o->setProperty("octave", spec.octaveShift / 12);
-                        o->setProperty("semitones", spec.octaveShift);
+                        o->setProperty("kind", spec.octaveShift == 12 ? "super"
+                                                : spec.octaveShift == -12 ? "sub"
+                                                : "unison");
+                        o->setProperty("octave", spec.octaveShift == 0 ? 0 : (spec.octaveShift > 0 ? 1 : -1));
+                        o->setProperty("semitones", spec.octaveShift == 12 ? 12
+                                                    : spec.octaveShift == -12 ? -12
+                                                    : 0);
                         o->setProperty("passthrough", spec.passThrough);
             links.add(var(o));
         }
@@ -953,7 +958,12 @@ void Engine::noteOn(int note, int midiChannel)
             if (!link.enabled)
                 continue;
 
-            const int coupledNote = note + link.octaveShift;
+            int shift = link.octaveShift;
+                        if (shift == 1) shift = 12;
+                        else if (shift == -1) shift = -12;
+                        else if (shift != 12 && shift != -12) shift = 0;
+
+                        const int coupledNote = note + shift;
             if (coupledNote < 0 || coupledNote >= TOTAL_NOTES)
                 continue;
 
@@ -1005,7 +1015,12 @@ void Engine::noteOff(int note, int midiChannel)
             if (!link.enabled)
                 continue;
 
-            const int coupledNote = note + link.octaveShift;
+            int shift = link.octaveShift;
+                        if (shift == 1) shift = 12;
+                        else if (shift == -1) shift = -12;
+                        else if (shift != 12 && shift != -12) shift = 0;
+
+                        const int coupledNote = note + shift;
             if (coupledNote < 0 || coupledNote >= TOTAL_NOTES)
                 continue;
 

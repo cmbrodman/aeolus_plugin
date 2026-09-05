@@ -79,11 +79,25 @@ void Division::initFromVar(const var& v)
                 if (auto* o = item.getDynamicObject())
                 {
                     spec.targetName = o->getProperty("to").toString();
-                                        if (o->hasProperty("semitones"))
-                                            spec.octaveShift = (int)o->getProperty("semitones");
-                                        else
-                                            spec.octaveShift = 12 * (int)o->getProperty("octave");
-                                        spec.passThrough = (bool)o->getProperty("passthrough");;
+                    spec.passThrough = (bool)o->getProperty("passthrough");
+
+                    const String kind = o->getProperty("kind").toString();
+                    if (kind == "super")
+                        spec.octaveShift = 12;
+                    else if (kind == "sub")
+                        spec.octaveShift = -12;
+                    else if (kind == "unison")
+                        spec.octaveShift = 0;
+                    else
+                    {
+                        int s = o->hasProperty("semitones")
+                            ? (int)o->getProperty("semitones")
+                            : 12 * (int)o->getProperty("octave");
+                        if (s == 1 || s == 12 || s == 144) s = 12;
+                        else if (s == -1 || s == -12 || s == -144) s = -12;
+                        else s = 0;
+                        spec.octaveShift = s;
+                    }
                 }
                 else
                 {
@@ -299,6 +313,8 @@ void Division::populateLinkedDivisions()
                         link.division = division;
                         link.enabled = false;
                         link.octaveShift = spec.octaveShift;
+                                    if (link.octaveShift == 1) link.octaveShift = 12;
+                                    if (link.octaveShift == -1) link.octaveShift = -12;
                         link.passThrough = spec.passThrough;
                         _linkedDivisions.push_back(link);
             if (std::find(division->_linkedFromDivisions.begin(),

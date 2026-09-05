@@ -292,9 +292,9 @@ void DivisionView::populateLinkButtons()
         auto& link = _division->getLinkByIndex(i);
 
         String oct;
-                if (link.octaveShift == 12)       oct = " 4'";
-                else if (link.octaveShift == -12) oct = " 16'";
-
+                if (link.octaveShift == 12 || link.octaveShift == 1)       oct = " 4'";
+                                else if (link.octaveShift == -12 || link.octaveShift == -1) oct = " 16'";
+                                
                 String caption;
                 if (link.division == _division)
                     caption = _division->getMnemonic() + oct;
