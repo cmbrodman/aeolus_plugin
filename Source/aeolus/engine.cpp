@@ -845,8 +845,9 @@ void Engine::applyCouplerLayouts(const Array<CouplerEdits>& edits)
         {
             auto* o = new DynamicObject();
             o->setProperty("to", spec.targetName);
-            o->setProperty("octave", spec.octaveShift / 12);
-            o->setProperty("passthrough", spec.passThrough);
+                        o->setProperty("octave", spec.octaveShift / 12);
+                        o->setProperty("semitones", spec.octaveShift);
+                        o->setProperty("passthrough", spec.passThrough);
             links.add(var(o));
         }
 

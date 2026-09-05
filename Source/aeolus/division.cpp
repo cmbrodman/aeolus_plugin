@@ -79,8 +79,11 @@ void Division::initFromVar(const var& v)
                 if (auto* o = item.getDynamicObject())
                 {
                     spec.targetName = o->getProperty("to").toString();
-                    spec.octaveShift = 12 * (int)o->getProperty("octave");
-                    spec.passThrough = (bool)o->getProperty("passthrough");
+                                        if (o->hasProperty("semitones"))
+                                            spec.octaveShift = (int)o->getProperty("semitones");
+                                        else
+                                            spec.octaveShift = 12 * (int)o->getProperty("octave");
+                                        spec.passThrough = (bool)o->getProperty("passthrough");;
                 }
                 else
                 {
@@ -158,6 +161,7 @@ var Division::getPersistentState() const
             auto* linkObj = new DynamicObject();
             linkObj->setProperty("division", link.division->getName());
             linkObj->setProperty("enabled", link.enabled);
+            linkObj->setProperty("semitones", link.octaveShift);
 
             links.add(var{linkObj});
         }
@@ -234,8 +238,13 @@ void Division::setPersistentState(const juce::var& v)
                     const String divisionName = linkObj->getProperty("division");
                     const bool enabled = linkObj->getProperty("enabled");
 
+                    const int semitones = linkObj->hasProperty("semitones")
+                        ? (int)linkObj->getProperty("semitones")
+                        : 0;
+
                     for (auto& link : _linkedDivisions) {
-                        if (link.division->getName() == divisionName)
+                        if (link.division->getName() == divisionName
+                            && link.octaveShift == semitones)
                             link.enabled = enabled;
                     }
                 }
@@ -286,8 +295,12 @@ void Division::populateLinkedDivisions()
     {
         if (auto* division = _engine.getDivisionByName(spec.targetName))
         {
-            Link link{ division, false, spec.octaveShift, spec.passThrough };
-            _linkedDivisions.push_back(link);
+            Link link;
+                        link.division = division;
+                        link.enabled = false;
+                        link.octaveShift = spec.octaveShift;
+                        link.passThrough = spec.passThrough;
+                        _linkedDivisions.push_back(link);
             if (std::find(division->_linkedFromDivisions.begin(),
                           division->_linkedFromDivisions.end(), this)
                 == division->_linkedFromDivisions.end())
