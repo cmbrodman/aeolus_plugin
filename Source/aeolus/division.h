@@ -155,6 +155,8 @@ public:
 
     void noteOn(int note, int midiChannel, bool followLinks = true);
     void noteOff(int note, int midiChannel, bool followLinks = true);
+    void triggerNoteInternal(int note);
+    void releaseNoteInternal(int note);
     void allNotesOff();
 
     void handleControlMessage(const juce::MidiMessage& msg);
@@ -208,8 +210,6 @@ private:
     bool isAlreadyVoiced(int stopIndex, int node);
 
     bool _hasBassCoupler = false;
-    void triggerNoteInternal(int note);
-    void releaseNoteInternal(int note);
 
     Engine& _engine;
 

@@ -18,6 +18,7 @@
 // ----------------------------------------------------------------------------
 
 #include "aeolus/engine.h"
+#include <vector>
 
 using namespace juce;
 
@@ -858,20 +859,25 @@ void Engine::applyCouplerLayouts(const Array<CouplerEdits>& edits)
     obj->setProperty("divisions", divisionsVar);
     configFile.replaceWithText(JSON::toString(config, true));
 
-    _divisions.clear();
-    {
-        FileInputStream stream(configFile);
-        loadDivisionsFromConfig(stream);
-    }
-    for (auto* division : _divisions)
-        division->clearLinkedDivisions();
-    for (auto* division : _divisions)
-        division->populateLinkedDivisions();
-    for (auto* division : _divisions)
-        division->ensurePresets();
-    if (_sequencer != nullptr)
-        _sequencer->initFromEngine();
-    requestSaveOrganState();
+    const var savedState = getPersistentState();
+
+        _divisions.clear();
+        {
+            FileInputStream stream(configFile);
+            loadDivisionsFromConfig(stream);
+        }
+        for (auto* division : _divisions)
+            division->clearLinkedDivisions();
+        for (auto* division : _divisions)
+            division->populateLinkedDivisions();
+
+        setPersistentState(savedState);
+
+        for (auto* division : _divisions)
+            division->ensurePresets();
+        if (_sequencer != nullptr)
+            _sequencer->initFromEngine();
+        requestSaveOrganState();
 }
 
 void Engine::processMIDIMessage(const MidiMessage& message)
@@ -896,31 +902,62 @@ void Engine::noteOn(int note, int midiChannel)
 {
     clearDivisionsTriggerFlag();
 
-    bool handled{ false };
-
-    // Handle key switches
-    // @note If a key switch falls within the playable range we need to make
-    //       sure we don't process corresponding note-on event, otherwise
-    //       navigating the sequencer will create a spurious sounds.
+    bool handled = false;
     if (midi::matchChannelToMask(getMIDIControlChannelsMask(), midiChannel)) {
-        if (isKeySwitchBackward(note)) {
-            _sequencer->stepBackward();
-            handled = true;
-        } else if (isKeySwitchForward(note)) {
-            _sequencer->stepForward();
-            handled = true;
+        if (isKeySwitchBackward(note)) { _sequencer->stepBackward(); handled = true; }
+        else if (isKeySwitchForward(note)) { _sequencer->stepForward(); handled = true; }
+    }
+    if (handled)
+        return;
+
+    auto* g = aeolus::EngineGlobal::getInstance();
+    if (g->shouldMTSFilterNote(note, midiChannel))
+        return;
+
+    const int nDiv = getDivisionCount();
+    std::vector<char> skipLocal((size_t)nDiv, 0);
+
+    for (int i = 0; i < nDiv; ++i)
+    {
+        auto* src = getDivisionByIndex(i);
+        if (midiChannel != 0 && !src->isForMIDIChannel(midiChannel))
+            continue;
+
+        for (int L = 0; L < src->getLinksCount(); ++L)
+        {
+            auto& link = src->getLinkByIndex(L);
+            if (!link.enabled || link.division == src)
+                continue;
+            for (int j = 0; j < nDiv; ++j)
+                if (getDivisionByIndex(j) == link.division)
+                    skipLocal[(size_t)j] = 1;
         }
     }
 
-    // Handle keys
-    if (!handled) {
+    for (int i = 0; i < nDiv; ++i)
+    {
+        if (skipLocal[(size_t)i])
+            continue;
+        getDivisionByIndex(i)->noteOn(note, midiChannel, false);
+    }
 
-        // Ignore note-on event if filtered by MTS.
-        auto* g = aeolus::EngineGlobal::getInstance();
+    for (int i = 0; i < nDiv; ++i)
+    {
+        auto* src = getDivisionByIndex(i);
+        if (midiChannel != 0 && !src->isForMIDIChannel(midiChannel))
+            continue;
 
-        if (!g->shouldMTSFilterNote(note, midiChannel)) {
-            for (auto* division : _divisions)
-                division->noteOn(note, midiChannel);
+        for (int L = 0; L < src->getLinksCount(); ++L)
+        {
+            auto& link = src->getLinkByIndex(L);
+            if (!link.enabled)
+                continue;
+
+            const int coupledNote = note + link.octaveShift;
+            if (coupledNote < 0 || coupledNote >= TOTAL_NOTES)
+                continue;
+
+            link.division->triggerNoteInternal(coupledNote);
         }
     }
 }
@@ -929,10 +966,54 @@ void Engine::noteOff(int note, int midiChannel)
 {
     clearDivisionsTriggerFlag();
 
-    for (auto* division : _divisions) {
-        division->noteOff(note, midiChannel);
+    const int nDiv = getDivisionCount();
+    std::vector<char> skipLocal((size_t)nDiv, 0);
+
+    for (int i = 0; i < nDiv; ++i)
+    {
+        auto* src = getDivisionByIndex(i);
+        if (midiChannel != 0 && !src->isForMIDIChannel(midiChannel))
+            continue;
+
+        for (int L = 0; L < src->getLinksCount(); ++L)
+        {
+            auto& link = src->getLinkByIndex(L);
+            if (!link.enabled || link.division == src)
+                continue;
+            for (int j = 0; j < nDiv; ++j)
+                if (getDivisionByIndex(j) == link.division)
+                    skipLocal[(size_t)j] = 1;
+        }
+    }
+
+    for (int i = 0; i < nDiv; ++i)
+    {
+        if (skipLocal[(size_t)i])
+            continue;
+        getDivisionByIndex(i)->noteOff(note, midiChannel, false);
+    }
+
+    for (int i = 0; i < nDiv; ++i)
+    {
+        auto* src = getDivisionByIndex(i);
+        if (midiChannel != 0 && !src->isForMIDIChannel(midiChannel))
+            continue;
+
+        for (int L = 0; L < src->getLinksCount(); ++L)
+        {
+            auto& link = src->getLinkByIndex(L);
+            if (!link.enabled)
+                continue;
+
+            const int coupledNote = note + link.octaveShift;
+            if (coupledNote < 0 || coupledNote >= TOTAL_NOTES)
+                continue;
+
+            link.division->releaseNoteInternal(coupledNote);
+        }
     }
 }
+
 
 void Engine::allNotesOff()
 {
@@ -1257,24 +1338,21 @@ void Engine::applyDivisionLayout(int count, const juce::StringArray& names)
     configFile.replaceWithText(JSON::toString(config, true));
 
     _divisions.clear();
-
     {
         FileInputStream stream(configFile);
         loadDivisionsFromConfig(stream);
     }
-
     for (auto* division : _divisions)
         division->clearLinkedDivisions();
-
     for (auto* division : _divisions)
         division->populateLinkedDivisions();
 
+    setPersistentState(savedState);
+
     for (auto* division : _divisions)
         division->ensurePresets();
-
     if (_sequencer != nullptr)
         _sequencer->initFromEngine();
-
     requestSaveOrganState();
 }
 
@@ -1435,16 +1513,17 @@ void Engine::applyDivisionStops(int divisionIndex, const StringArray& pipeNames)
         FileInputStream stream(configFile);
         loadDivisionsFromConfig(stream);
     }
-
     for (auto* division : _divisions)
         division->clearLinkedDivisions();
     for (auto* division : _divisions)
         division->populateLinkedDivisions();
+
+    setPersistentState(savedState);
+
     for (auto* division : _divisions)
         division->ensurePresets();
     if (_sequencer != nullptr)
         _sequencer->initFromEngine();
-
     requestSaveOrganState();
 }
 
