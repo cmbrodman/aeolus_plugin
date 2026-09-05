@@ -863,11 +863,33 @@ void Division::updateAggregatedKeysState()
 {
     _aggregatedKeysState = _keysState;
 
-    for (const auto* division : _linkedFromDivisions) {
-        for (const auto& link : division->_linkedDivisions) {
-            if (link.division == this && link.enabled) {
-                _aggregatedKeysState |= division->_aggregatedKeysState;
-                break;
+    for (const auto* src : _linkedFromDivisions)
+    {
+        for (const auto& link : src->_linkedDivisions)
+        {
+            if (link.division != this || !link.enabled)
+                continue;
+
+            int shift = link.octaveShift;
+            if (shift == 1) shift = 12;
+            else if (shift == -1) shift = -12;
+            else if (shift != 12 && shift != -12) shift = 0;
+
+            if (shift == 0)
+            {
+                _aggregatedKeysState |= src->_aggregatedKeysState;
+            }
+            else
+            {
+                for (int n = 0; n < TOTAL_NOTES; ++n)
+                {
+                    if (!src->_aggregatedKeysState[n])
+                        continue;
+
+                    const int coupled = n + shift;
+                    if (coupled >= 0 && coupled < TOTAL_NOTES)
+                        _aggregatedKeysState.set((size_t)coupled);
+                }
             }
         }
     }
