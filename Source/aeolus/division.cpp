@@ -514,11 +514,20 @@ void Division::noteOn(int note, int midiChannel, bool followLinks)
             if (!link.enabled)
                 continue;
 
-            const int n = note + link.octaveShift;
+            const int coupledNote = note + link.octaveShift;
+            if (coupledNote < 0 || coupledNote >= TOTAL_NOTES)
+                continue;
+
             if (link.division == this)
-                triggerNoteInternal(n);
+            {
+                triggerNoteInternal(coupledNote);
+                continue;
+            }
+
+            if (link.octaveShift == 0)
+                link.division->noteOn(coupledNote, 0, link.passThrough);
             else
-                link.division->noteOn(n, 0, link.passThrough);
+                link.division->triggerNoteInternal(coupledNote);
         }
     }
 
@@ -564,11 +573,20 @@ void Division::noteOff(int note, int midiChannel, bool followLinks)
             if (!link.enabled)
                 continue;
 
-            const int n = note + link.octaveShift;
+            const int coupledNote = note + link.octaveShift;
+            if (coupledNote < 0 || coupledNote >= TOTAL_NOTES)
+                continue;
+
             if (link.division == this)
-                releaseNoteInternal(n);
+            {
+                releaseNoteInternal(coupledNote);
+                continue;
+            }
+
+            if (link.octaveShift == 0)
+                link.division->noteOff(coupledNote, 0, link.passThrough);
             else
-                link.division->noteOff(n, 0, link.passThrough);
+                link.division->releaseNoteInternal(coupledNote);
         }
     }
 
