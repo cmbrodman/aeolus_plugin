@@ -858,10 +858,42 @@ void Engine::applyCouplerLayouts(const Array<CouplerEdits>& edits)
         }
 
         divObj->setProperty("links", links);
-        divObj->setProperty("has_bass_coupler", edit.hasBassCoupler);
-    }
+            divObj->setProperty("has_bass_coupler", edit.hasBassCoupler);
+        }
 
-    obj->setProperty("divisions", divisionsVar);
+        for (int i = 0; i < arr->size(); ++i)
+            {
+                auto* dobj = arr->getReference(i).getDynamicObject();
+                if (dobj == nullptr)
+                    continue;
+
+                const String dname = dobj->getProperty("name").toString();
+                if (dname.containsIgnoreCase("Pedal"))
+                    continue;
+
+                auto* linksArr = dobj->getProperty("links").getArray();
+                if (linksArr == nullptr)
+                    continue;
+
+                Array<var> kept;
+                for (const auto& item : *linksArr)
+                {
+                    if (auto* o = item.getDynamicObject())
+                    {
+                        const String to = o->getProperty("to").toString();
+                        if (to.containsIgnoreCase("Pedal"))
+                            continue;
+                    }
+                    else if (item.toString().containsIgnoreCase("Pedal"))
+                    {
+                        continue;
+                    }
+                    kept.add(item);
+                }
+                dobj->setProperty("links", kept);
+            }
+
+        obj->setProperty("divisions", divisionsVar);
     configFile.replaceWithText(JSON::toString(config, true));
 
     const var savedState = getPersistentState();

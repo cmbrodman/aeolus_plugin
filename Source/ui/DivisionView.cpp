@@ -25,6 +25,44 @@ using namespace juce;
 
 namespace ui {
 
+class CouplerButton : public juce::TextButton
+{
+public:
+    CouplerButton(const String& caption) : TextButton(caption)
+    {
+        setClickingTogglesState(true);
+    }
+
+    void paintButton(Graphics& g, bool highlighted, bool down) override
+    {
+        auto bounds = getLocalBounds().reduced(4).toFloat();
+        const float radius = 8.0f;
+
+        g.setColour(Colour(0x3A, 0x3A, 0x3A));
+        g.fillRoundedRectangle(bounds, radius);
+
+        auto inner = bounds.reduced(2.0f);
+        if (down)
+            inner.translate(0.0f, 1.0f);
+
+        const Colour ivory = getToggleState()
+            ? Colour(0xF5, 0xD9, 0x51)
+            : Colour(0xE4, 0xD8, 0xC4);
+
+        g.setColour(highlighted ? ivory.brighter(0.06f) : ivory);
+        g.fillRoundedRectangle(inner, jmax(1.0f, radius - 1.5f));
+
+        g.setColour(Colours::black);
+        auto font = CustomLookAndFeel::getStopButtonFont();
+        font.setHeight(12.0f);
+        g.setFont(font);
+        g.drawFittedText(getButtonText(),
+                         inner.toNearestInt(),
+                         Justification::centred,
+                         3);
+    }
+};
+
 constexpr int paddingTop = 30;
 constexpr int paddingBottom = 5;
 constexpr int buttonSize = 86;
@@ -158,99 +196,92 @@ constexpr int controlPanelWidth = 130;
 
 int DivisionView::getEstimatedHeightForWidth(int width) const
 {
-    constexpr int leftCouplerStrip = 110;
-    const int usable = width - controlPanelWidth - leftCouplerStrip;
+    const int usable = width - controlPanelWidth;
     const int nButtonsInRow = juce::jmax(1, usable / buttonSize);
-    const int nRows = _stopButtons.size() / nButtonsInRow
-                    + (_stopButtons.size() % nButtonsInRow > 0 ? 1 : 0);
-    return nRows * buttonSize + paddingTop + paddingBottom + 28;
+    const int nStopRows = _stopButtons.size() / nButtonsInRow
+                        + (_stopButtons.size() % nButtonsInRow > 0 ? 1 : 0);
+    const int nCoup = _linkButtons.size();
+    const int nCoupRows = nCoup == 0 ? 0
+                        : nCoup / nButtonsInRow + (nCoup % nButtonsInRow > 0 ? 1 : 0);
+    const int couplerH = buttonSize / 2;
+        return nStopRows * buttonSize + nCoupRows * couplerH + paddingTop + paddingBottom + 28;
 }
 
 void DivisionView::resized()
 {
     constexpr int controlPanelWidth = 130;
-    constexpr int leftCouplerStrip  = 110;
     constexpr int margin = 10;
-    constexpr int couplerBtnW = leftCouplerStrip - 2 * margin;
-    constexpr int couplerBtnH = 25;
 
-    // Division name across the top (between the two side strips)
-    _nameLabel.setBounds(leftCouplerStrip, 0,
-                         getWidth() - controlPanelWidth - leftCouplerStrip,
-                         paddingTop);
+    _nameLabel.setBounds(0, 0, getWidth() - controlPanelWidth, paddingTop);
 
-    // Cancel button near the right panel
     _cancelButton.setBounds(getWidth() - controlPanelWidth - 50, 10, 40, 15);
 
-    // --- Left coupler buttons ---
-    {
-        int y = 35;
-        for (auto* linkButton : _linkButtons)
-        {
-            linkButton->setBounds(margin, y, couplerBtnW, couplerBtnH);
-            y += couplerBtnH + 4;
-        }
-    }
-
-    // --- Right control panel ---
     _controlPanel.setBounds(getWidth() - controlPanelWidth, 0, controlPanelWidth, getHeight());
 
-    // --- Bass button (manuals only) ---
     if (_division->hasBassCoupler())
     {
         const int buttonWidth = controlPanelWidth - 3 * margin - 15;
         _bassCouplerButton.setBounds(
             getWidth() - controlPanelWidth + margin + 25,
-            55,
-            buttonWidth,
-            25
-        );
+            55, buttonWidth, 25);
     }
 
     if (_division->isPedal())
     {
-        const int margin = 10;
-        const int buttonWidth = controlPanelWidth - 3 * margin - 15; // same as Bass/Tremulant
-        const int buttonHeight = 50; // double the Bass height (25)
-
+        const int buttonWidth = controlPanelWidth - 3 * margin - 15;
         _panicButton.setBounds(
             getWidth() - controlPanelWidth + margin + 25,
-            55,                 // same vertical band Bass used on manuals
-            buttonWidth,
-            buttonHeight
-        );
+            55, buttonWidth, 50);
     }
 
-    // --- Stop buttons: middle strip only (no FlexBox) ---
-    const int midLeft  = leftCouplerStrip;
+    const int midLeft  = 0;
     const int midRight = getWidth() - controlPanelWidth;
     const int midWidth = midRight - midLeft;
     const int midTop   = paddingTop;
+    const int nCol     = juce::jmax(1, midWidth / buttonSize);
 
+    int stopRows = 0;
     if (midWidth > buttonSize && _stopButtons.size() > 0)
     {
-        const int nButtonsInRow = juce::jmax(1, midWidth / buttonSize);
         int index = 0;
-
         for (auto* button : _stopButtons)
         {
-            const int row = index / nButtonsInRow;
-            const int col = index % nButtonsInRow;
-
-            const int buttonsInThisRow = juce::jmin(nButtonsInRow,
-                                                    _stopButtons.size() - row * nButtonsInRow);
+            const int row = index / nCol;
+            const int col = index % nCol;
+            const int buttonsInThisRow = juce::jmin(nCol,
+                _stopButtons.size() - row * nCol);
             const int rowWidth  = buttonsInThisRow * buttonSize;
             const int rowStartX = midLeft + (midWidth - rowWidth) / 2;
 
-            button->setBounds(
-                rowStartX + col * buttonSize,
-                midTop + row * buttonSize,
-                buttonSize,
-                buttonSize
-            );
+            button->setBounds(rowStartX + col * buttonSize,
+                              midTop + row * buttonSize,
+                              buttonSize, buttonSize);
+            stopRows = row + 1;
             ++index;
         }
     }
+
+    if (_linkButtons.size() > 0 && midWidth > buttonSize)
+    {
+        const int coupTop = midTop + stopRows * buttonSize;
+        int index = 0;
+        for (auto* button : _linkButtons)
+        {
+            const int row = index / nCol;
+            const int col = index % nCol;
+            const int buttonsInThisRow = juce::jmin(nCol,
+                _linkButtons.size() - row * nCol);
+            const int rowWidth  = buttonsInThisRow * buttonSize;
+            const int rowStartX = midLeft + (midWidth - rowWidth) / 2;
+
+            const int couplerH = buttonSize / 2;
+                        button->setBounds(rowStartX + col * buttonSize,
+                                        coupTop + row * couplerH,
+                                        buttonSize, couplerH);
+            ++index;
+        }
+    }
+
     layoutPresetButtons();
 }
 
@@ -264,8 +295,6 @@ void DivisionView::paint(Graphics& g)
     };
     g.setGradientFill(grad);
     g.fillRect(getLocalBounds());
-    g.setColour(Colour(0x1F, 0x1F, 0x1F));
-    g.fillRect(0, 0, 110, getHeight());   // left coupler strip
 }
 
 void DivisionView::populateStopButtons()
@@ -287,44 +316,40 @@ void DivisionView::populateStopButtons()
 void DivisionView::populateLinkButtons()
 {
     jassert(_division != nullptr);
+    _linkButtons.clear();
 
-    for (int i = 0; i < _division->getLinksCount(); ++i) {
+    auto shiftOf = [](int s)
+    {
+        if (s == 1 || s == 12) return 12;
+        if (s == -1 || s == -12) return -12;
+        return 0;
+    };
+
+    for (int i = 0; i < _division->getLinksCount(); ++i)
+    {
         auto& link = _division->getLinkByIndex(i);
+        const int shift = shiftOf(link.octaveShift);
 
         String oct;
-                if (link.octaveShift == 12 || link.octaveShift == 1)       oct = " 4'";
-                                else if (link.octaveShift == -12 || link.octaveShift == -1) oct = " 16'";
-                                
-                String caption;
-                if (link.division == _division)
-                    caption = _division->getMnemonic() + oct;
-                else
-                    caption = _division->getMnemonic() + " + " + link.division->getMnemonic() + oct;
-        auto button = std::make_unique<TextButton>(caption);
+        if (shift == 12) oct = " 4'";
+        else if (shift == -12) oct = " 16'";
+
+        String caption;
+        if (link.division == _division)
+            caption = oct.trimStart();                    // "4'" / "16'"
+        else
+            caption = link.division->getName() + oct;     // "Swell" / "Swell 4'" / "Swell 16'"
+
+        auto button = std::make_unique<CouplerButton>(caption);
         auto* ptr = button.get();
-        ptr->setColour(TextButton::textColourOffId, Colour(0x99, 0x99, 0x99));
-        ptr->setColour(TextButton::textColourOnId, Colour(0xFF, 0xFF, 0xFF));
-        ptr->setColour(TextButton::buttonColourId, Colour(0x33, 0x33, 0x33));
-        ptr->setColour(TextButton::buttonOnColourId, Colours::darkgreen);
+        ptr->setToggleState(link.enabled, dontSendNotification);
 
-        ptr->setClickingTogglesState(true);
-        ptr->setToggleState(link.enabled, juce::dontSendNotification);
-
-        button->onClick = [division=_division, i, ptr] {
+        button->onClick = [division = _division, i, ptr] {
             division->enableLink(i, ptr->getToggleState());
         };
 
         _linkButtons.add(button.release());
         addAndMakeVisible(ptr);
-    }
-
-    auto& engine = _division->getEngine();
-
-    for (int i = 0; i < engine.getDivisionCount(); ++i) {
-        auto* div = engine.getDivisionByIndex(i);
-
-        if (div == _division)
-            break;
     }
 }
 
@@ -365,12 +390,11 @@ void DivisionView::populatePresetButtons()
 void DivisionView::layoutPresetButtons()
 {
     constexpr int controlPanelWidth = 130;
-    constexpr int leftCouplerStrip = 110;
     constexpr int presetH = 22;
     constexpr int gap = 4;
 
-    const int midLeft = leftCouplerStrip;
-    const int midWidth = getWidth() - controlPanelWidth - leftCouplerStrip;
+    const int midLeft = 0;
+    const int midWidth = getWidth() - controlPanelWidth;
     const int n = _presetButtons.size();
     if (n == 0 || midWidth < 20)
         return;

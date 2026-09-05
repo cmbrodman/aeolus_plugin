@@ -27,8 +27,6 @@ CouplerEditorComponent::CouplerEditorComponent(aeolus::Engine& engine)
     for (int i = 0; i < _engine.getDivisionCount(); ++i)
     {
         auto* d = _engine.getDivisionByIndex(i);
-        if (d->isPedal())
-            continue;
         _divisionBox.addItem(d->getName(), i + 1);
     }
     if (_divisionBox.getNumItems() > 0)
@@ -88,10 +86,17 @@ std::vector<aeolus::Division::LinkSpec> CouplerEditorComponent::specsFromRows(in
             specs.push_back(spec);
         };
 
-        if (row->dest != src)
-            add(0, row->unison.getToggleState());
-        add(12, row->super.getToggleState());
-        add(-12, row->sub.getToggleState());
+       if (row->dest->isPedal())
+                    continue;
+
+                if (row->dest != src)
+                    add(0, row->unison.getToggleState());
+
+                if (!src->isPedal())
+                {
+                    add(12, row->super.getToggleState());
+                    add(-12, row->sub.getToggleState());
+                }
     }
     return specs;
 }
@@ -110,6 +115,11 @@ void CouplerEditorComponent::loadSource()
 {
     _shownSource = getSourceIndex();
     auto* src = _engine.getDivisionByIndex(_shownSource);
+    _bassButton.setVisible(src != nullptr && !src->isPedal());
+        _destTitle.setText(src != nullptr && src->isPedal()
+                           ? "Manuals played from Pedal"
+                           : "Destinations",
+                       dontSendNotification);
     if (src == nullptr)
         return;
 
@@ -154,12 +164,14 @@ void CouplerEditorComponent::loadSource()
     {
         auto* dest = row->dest;
         const bool self = (dest == src);
-        const bool pedal = dest->isPedal();
-        row->unison.setVisible(!self);
-        row->super.setVisible(!pedal);
-        row->sub.setVisible(!pedal);
-        row->pass.setVisible(!pedal && !self);
+                const bool show = !dest->isPedal();
+                const bool octaves = show && !src->isPedal();
 
+                row->name.setVisible(show);
+                row->unison.setVisible(show && !self);
+                row->super.setVisible(octaves);
+                row->sub.setVisible(octaves);
+                row->pass.setVisible(octaves && !self);
         auto applySpec = [&](const aeolus::Division::LinkSpec& spec)
         {
             if (spec.targetName != dest->getName())

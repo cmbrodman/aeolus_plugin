@@ -307,20 +307,36 @@ void Division::populateLinkedDivisions()
 {
     for (const auto& spec : _linkSpecs)
     {
-        if (auto* division = _engine.getDivisionByName(spec.targetName))
-        {
-            Link link;
-                        link.division = division;
-                        link.enabled = false;
-                        link.octaveShift = spec.octaveShift;
-                                    if (link.octaveShift == 1) link.octaveShift = 12;
-                                    if (link.octaveShift == -1) link.octaveShift = -12;
-                        link.passThrough = spec.passThrough;
-                        _linkedDivisions.push_back(link);
-            if (std::find(division->_linkedFromDivisions.begin(),
-                          division->_linkedFromDivisions.end(), this)
-                == division->_linkedFromDivisions.end())
-                division->_linkedFromDivisions.push_back(this);
+        if (auto* dest = _engine.getDivisionByName(spec.targetName))
+                {
+                    int shift = spec.octaveShift;
+                    if (shift == 1) shift = 12;
+                    else if (shift == -1) shift = -12;
+                    else if (shift != 12 && shift != -12) shift = 0;
+
+                    // Manuals never couple to Pedal (Bass coupler is separate)
+                                if (!isPedal() && dest->isPedal())
+                                    continue;
+
+                                // Pedal does not couple to itself
+                                if (isPedal() && dest->isPedal())
+                                    continue;
+
+                                // Pedal may play manuals in unison only
+                                if (isPedal() && shift != 0)
+                                    continue;
+
+                    Link link;
+                    link.division = dest;
+                    link.enabled = false;
+                    link.octaveShift = shift;
+                    link.passThrough = spec.passThrough;
+                    _linkedDivisions.push_back(link);
+
+            if (std::find(dest->_linkedFromDivisions.begin(),
+                                    dest->_linkedFromDivisions.end(), this)
+                            == dest->_linkedFromDivisions.end())
+                            dest->_linkedFromDivisions.push_back(this);
         }
     }
 }
