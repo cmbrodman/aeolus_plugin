@@ -300,7 +300,7 @@ MIT-like, MIT, BSD-3-Clause and Apache-2.0 candidates above are generally compat
 Before distributing any binary:
 
 - [ ] Produce a dependency/asset inventory and bundled notices, including pinned JUCE and any copied DSP/helper code, Qt plugins, fonts/icons, organ definitions and impulse responses.
-- [ ] Audit each bundled OpenAIR impulse response's actual license/attribution and redistribution terms. Being downloadable or used by the existing repository is not a universal permission grant.
+- [x] Audit each bundled OpenAIR impulse response's actual license/attribution and redistribution terms. Completed 2026-10-15 for all ten recordings and all 85 stop-model files: see [asset notices](docs/ASSET_NOTICES.md) and [per-file source/license inventory](docs/asset-provenance.json). Ship those notices/license texts with releases and re-audit changed assets.
 - [ ] The checked-in `asiosdk_2.3.3_2019-06-14` directory contains only download instructions, not a vendored SDK. `WITH_ASIO` is OFF by default, but Windows CI downloads/enables the legacy SDK. Audit the exact downloaded SDK and its redistribution terms for ASIO builds; newer SDK terms do not automatically apply. See `THIRD_PARTY_NOTICES.md` and `docs/DISTRIBUTION_CHECKLIST.md` (inventory corrected 2026-10-15).
 - [ ] If plugin formats return later, inspect the exact VST3/AU/CLAP wrapper/SDK versions and their licenses. Current CMake's standalone scope does not establish permission for every future format.
 - [ ] Supply corresponding source, patches, build/configuration scripts and required installation/relinking information for the selected distribution method. Preserve license texts and copyright notices and verify the recipient can rebuild the delivered version.

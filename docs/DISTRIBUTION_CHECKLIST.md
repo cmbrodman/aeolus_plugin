@@ -8,7 +8,7 @@ Updated 2026-10-15. Use this alongside the complete applicable licenses; complet
 - Retain [LICENSE.txt](../LICENSE.txt), [NOTICE.md](../NOTICE.md), [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) and all files in [LICENSES/](../LICENSES/).
 - Mark modified versions prominently and record accurate descriptions/dates. Keep existing author names and separate fork modifications from upstream work.
 - Include the exact required JUCE and CLAP submodule contents and their nested dependency notices. A repository archive without submodules is not automatically complete corresponding source.
-- Resolve the impulse-response/stop-model/resource provenance entries in THIRD_PARTY_NOTICES before representing the whole package as cleared. Do not add fabricated attributions or license grants.
+- Retain [the resolved recording/stop-model notices](ASSET_NOTICES.md) and [per-file inventory](asset-provenance.json). Verify hashes for the release; re-audit changed assets. Complete the separate icon/image/modelling-script provenance checks in THIRD_PARTY_NOTICES before representing the whole package as cleared.
 
 ## Binary releases, including appliance images
 
@@ -19,7 +19,7 @@ Updated 2026-10-15. Use this alongside the complete applicable licenses; complet
 - If the distributed system qualifies as a User Product and installation-information requirements apply, provide the required information for installing/running modified covered software.
 - With the open-source JUCE route, comply with the AGPLv3 terms applicable to the combination, including the remote-network source offer if that provision applies. Do not call the entire combination GPL-only.
 - Ensure recipients can find the copyright, license and no-warranty notices. Preserve existing interactive legal notices when present; assess GPLv3 section 5(d)'s original-interface exception rather than assuming a new About screen is always mandatory.
-- Verify dataset-specific recording permissions, designated attribution, license links and modification notices. Fonts stay under OFL with reserved-name conditions; do not relicense them under the application GPL.
+- Package all ten recordings' designated credits, CC BY 4.0 license/link and conversion notices from ASSET_NOTICES.md. Preserve stop-model GPL grants, embedded author/comment fields and editable model sources. Fonts stay under OFL with reserved-name conditions; recordings stay under CC BY 4.0. Do not relabel them under the application GPL.
 - For ASIO-enabled Windows builds, verify the downloaded legacy SDK's exact license and required notices. It is not cleared merely because the Linux target defaults to ASIO OFF.
 - Check that the final archive/image actually contains these materials; the existing CI artifact uploader does not automatically collect root-level documentation/license files.
 

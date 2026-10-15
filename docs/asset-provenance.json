@@ -1,0 +1,1601 @@
+{
+  "audit_date": "2026-10-15",
+  "baseline_commit": "d0abe77ab85f98226f4cb207409ace9a3fd4f4fd",
+  "scope": "All 10 Resources/irs/*.wav, 59 Resources/stops/*.ae0 and 26 Resources/stops/custom/*.json; no asset bytes changed.",
+  "original_stops_archive": {
+    "url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+    "sha256": "51ba94d19cb57f7240b294f39eaf6d46df151a4e5e3848abfb7d2f5927cb5a93",
+    "license": "GPL-2.0-or-later",
+    "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+    "packaging_archive": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0-3.debian.tar.xz",
+    "packaging_archive_sha256": "7f9b8e103c50fb1c203bd9c3d12a0924f5c236008675f96f884582c4162a85d3"
+  },
+  "assets": [
+    {
+      "path": "Resources/irs/1st_baptist_nashville_balcony.wav",
+      "sha256": "54a1a4cfee86dc57b2707b37d5880de01679578714130c014375ffacb4c116e7",
+      "license": "CC-BY-4.0",
+      "title": "1st Baptist Church Nashville",
+      "attribution": [
+        "www.openairlib.net",
+        "Adam Townsell"
+      ],
+      "dataset_url": "https://www.openair.hosted.york.ac.uk/?page_id=406",
+      "license_evidence": "https://web.archive.org/web/20211026213225/https://www.openair.hosted.york.ac.uk/?page_id=406",
+      "license_evidence_capture_sha256": "6361669087ad9421aa6fad47cb266da881b68cddaf3a5028df36531707ffd65a",
+      "source_url": "https://webfiles.york.ac.uk/OPENAIR/IRs/1st-baptist-nashville/stereo/1st_baptist_nashville_balcony.wav",
+      "source_sha256": "2fb3f2fb3ec5a9db2e27428b7fd96ed14b28688073390ac099b08d57828584c8",
+      "source_format": {
+        "sample_rate": 96000,
+        "channels": 2,
+        "bits": 24,
+        "format": 1,
+        "frames": 288000
+      },
+      "bundled_format": {
+        "sample_rate": 44100,
+        "channels": 2,
+        "bits": 16,
+        "format": 1,
+        "frames": 132300
+      },
+      "modifications": "Resampled from 96 kHz and converted from 24-bit to 16-bit PCM; duration retained at 3 seconds.",
+      "comparison": {
+        "method": "FFT-resample source to 44100 Hz; least-squares channel fit over all common frames, at zero start offsets. Exact historical filter/dither settings unknown.",
+        "full_overlap_explained_energy": 0.9997487994828258,
+        "overlap_frames": 132300,
+        "coefficients": [
+          [
+            1.0002159563408086,
+            6.658845320506634e-06
+          ],
+          [
+            -0.00012003853607830854,
+            0.9999166894298861
+          ]
+        ]
+      }
+    },
+    {
+      "path": "Resources/irs/elveden_hall_suffolk_england.wav",
+      "sha256": "02f0468bbb4a92fb47c55822ca2eee638a8c0460448cb6d3a0959368347d767a",
+      "license": "CC-BY-4.0",
+      "title": "Elveden Hall (Suffolk England)",
+      "attribution": [
+        "Matt Rogalsky"
+      ],
+      "dataset_url": "https://www.openair.hosted.york.ac.uk/?page_id=459",
+      "license_evidence": "https://web.archive.org/web/20211026210522/https://www.openair.hosted.york.ac.uk/?page_id=459",
+      "license_evidence_capture_sha256": "57cd252bf9087ded572f257b6b4aa8ad7d9659a49d719aa8161e06ead6cd4948",
+      "source_url": "https://webfiles.york.ac.uk/OPENAIR/IRs/elveden-hall-suffolk-england/stereo/1a_marble_hall.wav",
+      "source_sha256": "951b9c4dcac29421787211cb99ba75c8e792d7727f63dc4579755f70f5bad000",
+      "source_format": {
+        "sample_rate": 44100,
+        "channels": 2,
+        "bits": 16,
+        "format": 1,
+        "frames": 354123
+      },
+      "bundled_format": {
+        "sample_rate": 44100,
+        "channels": 2,
+        "bits": 16,
+        "format": 1,
+        "frames": 264936
+      },
+      "modifications": "Original 44.1 kHz/16-bit format retained; shortened from approximately 8.03 to 6.01 seconds, with tail/silence edits.",
+      "comparison": {
+        "method": "FFT-resample source to 44100 Hz; least-squares channel fit over all common frames, at zero start offsets. Exact historical filter/dither settings unknown.",
+        "full_overlap_explained_energy": 0.9999920055747992,
+        "overlap_frames": 264936,
+        "coefficients": [
+          [
+            1.000002673362058,
+            1.0611497687379612e-05
+          ],
+          [
+            1.0078369971759045e-05,
+            0.9999877795066494
+          ]
+        ]
+      }
+    },
+    {
+      "path": "Resources/irs/lady_chapel_stalbans.wav",
+      "sha256": "9742a730b426b908328d1ae95f6f407ef8d70f84b3b86bec2cbc43f84e861be9",
+      "license": "CC-BY-4.0",
+      "title": "Lady Chapel, St Albans Cathedral",
+      "attribution": [
+        "www.openairlib.net",
+        "Audiolab, University of York",
+        "Marcin Gorzel",
+        "Gavin Kearney",
+        "Aglaia Foteinou",
+        "Sorrel Hoare",
+        "Simon Shelley"
+      ],
+      "dataset_url": "https://www.openair.hosted.york.ac.uk/?page_id=595",
+      "license_evidence": "https://web.archive.org/web/20211026220821/https://www.openair.hosted.york.ac.uk/?page_id=595",
+      "license_evidence_capture_sha256": "f6b6b0d944c21ba561ffc26adb1c234305bb578035e7190dfbbf4d8d6d91ffc6",
+      "source_url": "https://webfiles.york.ac.uk/OPENAIR/IRs/lady-chapel-st-albans-cathedral/stereo/stalbans_a_ortf.wav",
+      "source_sha256": "be670d833feaf274e601ad026b4f32f126c71fa8eb9b386e855ed9f0035410aa",
+      "source_format": {
+        "sample_rate": 44100,
+        "channels": 2,
+        "bits": 24,
+        "format": 1,
+        "frames": 264600
+      },
+      "bundled_format": {
+        "sample_rate": 44100,
+        "channels": 2,
+        "bits": 16,
+        "format": 1,
+        "frames": 132701
+      },
+      "modifications": "Converted from 24-bit to 16-bit PCM and shortened from 6 to approximately 3.01 seconds.",
+      "comparison": {
+        "method": "FFT-resample source to 44100 Hz; least-squares channel fit over all common frames, at zero start offsets. Exact historical filter/dither settings unknown.",
+        "full_overlap_explained_energy": 0.9998663640790282,
+        "overlap_frames": 132701,
+        "coefficients": [
+          [
+            0.9998716842454818,
+            8.83658747860132e-06
+          ],
+          [
+            -5.576070339005723e-05,
+            0.9999818336793632
+          ]
+        ]
+      }
+    },
+    {
+      "path": "Resources/irs/r1_nuclear_reactor_hall.wav",
+      "sha256": "e73cb35820f41594b1e6a9d2e53996d1a79bd0061fd63ef10e0101b9706c63ac",
+      "license": "CC-BY-4.0",
+      "title": "R1 Nuclear Reactor Hall",
+      "attribution": [
+        "www.openairlib.net",
+        "Audiolab, University of York",
+        "Dr. Damian T. Murphy"
+      ],
+      "dataset_url": "https://www.openair.hosted.york.ac.uk/?page_id=626",
+      "license_evidence": "https://web.archive.org/web/20211026223325/https://www.openair.hosted.york.ac.uk/?page_id=626",
+      "license_evidence_capture_sha256": "656bf6616df8fb4f1f42860e755783653bce8cdf1c9aaaaab7cbc20803a4426a",
+      "source_url": "https://webfiles.york.ac.uk/OPENAIR/IRs/r1-nuclear-reactor-hall/stereo/r1_ortf.wav",
+      "source_sha256": "3cf0f3c49ab113e5e83f7d9a526649172f8e46eaacb8e0530c6441ff98933c0d",
+      "source_format": {
+        "sample_rate": 44100,
+        "channels": 2,
+        "bits": 24,
+        "format": 1,
+        "frames": 894348
+      },
+      "bundled_format": {
+        "sample_rate": 44100,
+        "channels": 2,
+        "bits": 16,
+        "format": 1,
+        "frames": 220877
+      },
+      "modifications": "Converted from 24-bit to 16-bit PCM and shortened from approximately 20.28 to 5.01 seconds.",
+      "comparison": {
+        "method": "FFT-resample source to 44100 Hz; least-squares channel fit over all common frames, at zero start offsets. Exact historical filter/dither settings unknown.",
+        "full_overlap_explained_energy": 0.9999243054489129,
+        "overlap_frames": 220877,
+        "coefficients": [
+          [
+            0.9999890082613778,
+            -7.296766141347521e-05
+          ],
+          [
+            -4.479019036011999e-05,
+            1.000027676946431
+          ]
+        ]
+      }
+    },
+    {
+      "path": "Resources/irs/st_andrews_church.wav",
+      "sha256": "271c2130898c3891d334a71bf4ef5db9ed9fd8bb26ec9816226652cd27df82dc",
+      "license": "CC-BY-4.0",
+      "title": "St Andrew’s Church",
+      "attribution": [
+        "www.openairlib.net",
+        "Audiolab, University of York",
+        "Damian T. Murphy"
+      ],
+      "dataset_url": "https://www.openair.hosted.york.ac.uk/?page_id=683",
+      "license_evidence": "https://web.archive.org/web/20211026202647/https://www.openair.hosted.york.ac.uk/?page_id=683",
+      "license_evidence_capture_sha256": "a0e46ecb83415fd0376ca84bca535d6ba4da5807622f37b1b9c7c23921264210",
+      "source_url": "https://webfiles.york.ac.uk/OPENAIR/IRs/st-andrews-church/stereo/lyd3_000_ortf_48k.wav",
+      "source_sha256": "6cfe3f350a4076fa5436840078ac2e10bf4abad810ab3a6cea23a21dd0e84763",
+      "source_format": {
+        "sample_rate": 48000,
+        "channels": 2,
+        "bits": 32,
+        "format": 3,
+        "frames": 96000
+      },
+      "bundled_format": {
+        "sample_rate": 44100,
+        "channels": 2,
+        "bits": 16,
+        "format": 1,
+        "frames": 96967
+      },
+      "modifications": "Resampled from 48 kHz, converted from 32-bit floating point to 16-bit PCM, and tail/silence edited/padded from 2 to approximately 2.20 seconds.",
+      "comparison": {
+        "method": "FFT-resample source to 44100 Hz; least-squares channel fit over all common frames, at zero start offsets. Exact historical filter/dither settings unknown.",
+        "full_overlap_explained_energy": 0.9998064632177723,
+        "overlap_frames": 88200,
+        "coefficients": [
+          [
+            0.9999339835394075,
+            -0.0004210364151732395
+          ],
+          [
+            0.00153926261594573,
+            0.9993023141169587
+          ]
+        ]
+      }
+    },
+    {
+      "path": "Resources/irs/st_georges_far.wav",
+      "sha256": "26829faff94f7308113eaf7b09ac8a54b314f0408205957f1c5a1818bddecf5a",
+      "license": "CC-BY-4.0",
+      "title": "St. George’s Episcopal Church",
+      "attribution": [
+        "www.openairlib.net",
+        "Adam Townsell"
+      ],
+      "dataset_url": "https://www.openair.hosted.york.ac.uk/?page_id=688",
+      "license_evidence": "https://web.archive.org/web/20211026221715/https://www.openair.hosted.york.ac.uk/?page_id=688",
+      "license_evidence_capture_sha256": "da17d1c265c5c085939c7111e1e3efe5b3a4429329189cfef7f84964d4a3c55c",
+      "source_url": "https://webfiles.york.ac.uk/OPENAIR/IRs/st-georges-episcopal-church/stereo/st_georges_far.wav",
+      "source_sha256": "52be0b9341433365626449fcf1ad2ad4f366c7b0820267d41f5b555047eaf5f7",
+      "source_format": {
+        "sample_rate": 96000,
+        "channels": 2,
+        "bits": 24,
+        "format": 1,
+        "frames": 288000
+      },
+      "bundled_format": {
+        "sample_rate": 44100,
+        "channels": 2,
+        "bits": 16,
+        "format": 1,
+        "frames": 132300
+      },
+      "modifications": "Resampled from 96 kHz and converted from 24-bit to 16-bit PCM; duration retained at 3 seconds.",
+      "comparison": {
+        "method": "FFT-resample source to 44100 Hz; least-squares channel fit over all common frames, at zero start offsets. Exact historical filter/dither settings unknown.",
+        "full_overlap_explained_energy": 0.9999056921753912,
+        "overlap_frames": 132300,
+        "coefficients": [
+          [
+            0.9999719701082641,
+            -2.6576339681666324e-05
+          ],
+          [
+            1.8344778580870286e-05,
+            1.0000470076519377
+          ]
+        ]
+      }
+    },
+    {
+      "path": "Resources/irs/st_laurentius_molenbeek.wav",
+      "sha256": "f167c93e9c1bc969fcf6a951bebee99c05793ed706481161f7019d1f923a7ab4",
+      "license": "CC-BY-4.0",
+      "title": "Saint Lawrence Church Molenbeek-Wersbeek Belgium",
+      "attribution": [
+        "www.openairlib.net"
+      ],
+      "dataset_url": "https://www.openair.hosted.york.ac.uk/?page_id=638",
+      "license_evidence": "https://web.archive.org/web/20211026221833/https://www.openair.hosted.york.ac.uk/?page_id=638",
+      "license_evidence_capture_sha256": "6f893aec74dcfb3a840e27920f71774f375786e8f618908cc8ca21770cd9fa4a",
+      "source_url": "https://webfiles.york.ac.uk/OPENAIR/IRs/saint-lawrence-church-molenbeek-wersbeek-belgium/stereo/ir_church_saint-laurentius_molenbeek_bekkevoort_belgium.wav",
+      "source_sha256": "c2139088eea63e076bb905db30800d5600435b5dbdac9dc58241d5fa9277e6e4",
+      "source_format": {
+        "sample_rate": 96000,
+        "channels": 2,
+        "bits": 24,
+        "format": 1,
+        "frames": 105235
+      },
+      "bundled_format": {
+        "sample_rate": 44100,
+        "channels": 2,
+        "bits": 16,
+        "format": 1,
+        "frames": 83762
+      },
+      "modifications": "Resampled from 96 kHz and converted from 24-bit to 16-bit PCM; level increased by approximately 93.7 times, with tail/silence edits/padding from approximately 1.10 to 1.90 seconds.",
+      "comparison": {
+        "method": "FFT-resample source to 44100 Hz; least-squares channel fit over all common frames, at zero start offsets. Exact historical filter/dither settings unknown.",
+        "full_overlap_explained_energy": 0.9992496108987736,
+        "overlap_frames": 48342,
+        "coefficients": [
+          [
+            93.67277380900951,
+            -0.0053348659496842595
+          ],
+          [
+            -0.014142940672297906,
+            93.63757060806425
+          ]
+        ]
+      }
+    },
+    {
+      "path": "Resources/irs/york_council_chamber.wav",
+      "sha256": "f479ab1a4726ab2f28d0631b9eba56cba381774c16906cf3c656ea19a297bed6",
+      "license": "CC-BY-4.0",
+      "title": "York Guildhall Council Chamber",
+      "attribution": [
+        "www.openairlib.net",
+        "Audiolab, University of York",
+        "Benjamin Tsui",
+        "Oliver McIntyre",
+        "Elizabeth Wilson"
+      ],
+      "dataset_url": "https://www.openair.hosted.york.ac.uk/?page_id=790",
+      "license_evidence": "https://web.archive.org/web/20211026213055/https://www.openair.hosted.york.ac.uk/?page_id=790",
+      "license_evidence_capture_sha256": "ef05d051fa4a07e59c894db7906ada63ceb410e3808581d3eb0ce75c169b2e12",
+      "source_url": "https://webfiles.york.ac.uk/OPENAIR/IRs/york-guildhall-council-chamber/b-format/councilchamber_s1_r1_ir_1_96000.wav",
+      "source_sha256": "c2843a4c83adbb65d0ae6d8b1f2dbd55b0f2763fec05cd98190b9ad429d6b5f6",
+      "source_format": {
+        "sample_rate": 96000,
+        "channels": 4,
+        "bits": 24,
+        "format": 1,
+        "frames": 480000
+      },
+      "bundled_format": {
+        "sample_rate": 44100,
+        "channels": 2,
+        "bits": 16,
+        "format": 1,
+        "frames": 110317
+      },
+      "modifications": "First two channels extracted from a four-channel B-format recording; resampled from 96 kHz, converted from 24-bit to 16-bit PCM and shortened from 5 to approximately 2.50 seconds, with tail/silence edits. This is a two-channel extraction, not evidence of an Ambisonic stereo decode.",
+      "comparison": {
+        "method": "FFT-resample source to 44100 Hz; least-squares channel fit over all common frames, at zero start offsets. Exact historical filter/dither settings unknown.",
+        "full_overlap_explained_energy": 0.9999846985043257,
+        "overlap_frames": 110317,
+        "coefficients": [
+          [
+            1.0000408784324295,
+            -1.173066376842286e-05
+          ],
+          [
+            -1.7066903347572244e-05,
+            1.0000083830422826
+          ],
+          [
+            -1.9605955372298118e-05,
+            -7.312885997096221e-06
+          ],
+          [
+            -6.272568190589015e-05,
+            -8.22859069391004e-06
+          ]
+        ]
+      }
+    },
+    {
+      "path": "Resources/irs/york_minster.wav",
+      "sha256": "aaea71963506c82950f7d53999c56ed7d7b55356582b4e4ef53f2dc5a4844555",
+      "license": "CC-BY-4.0",
+      "title": "York Minster",
+      "attribution": [
+        "www.openairlib.net",
+        "Audiolab, University of York",
+        "Damian T. Murphy"
+      ],
+      "dataset_url": "https://www.openair.hosted.york.ac.uk/?page_id=797",
+      "license_evidence": "https://web.archive.org/web/20211026202546/https://www.openair.hosted.york.ac.uk/?page_id=797",
+      "license_evidence_capture_sha256": "d2733eebca337a32bfa33449a509e5b519c1e49262a72c9f39d6725fb746cc1c",
+      "source_url": "https://webfiles.york.ac.uk/OPENAIR/IRs/york-minster/stereo/minster1_000_ortf_48k.wav",
+      "source_sha256": "2fbf0285a8d4bb083b32d052d2e0359e1bc59cc426ec93098ad4e322862afb63",
+      "source_format": {
+        "sample_rate": 48000,
+        "channels": 2,
+        "bits": 24,
+        "format": 1,
+        "frames": 480000
+      },
+      "bundled_format": {
+        "sample_rate": 44100,
+        "channels": 2,
+        "bits": 16,
+        "format": 1,
+        "frames": 309591
+      },
+      "modifications": "Resampled from 48 kHz, converted from 24-bit to 16-bit PCM and shortened from 10 to approximately 7.02 seconds.",
+      "comparison": {
+        "method": "FFT-resample source to 44100 Hz; least-squares channel fit over all common frames, at zero start offsets. Exact historical filter/dither settings unknown.",
+        "full_overlap_explained_energy": 0.9999297515386294,
+        "overlap_frames": 309591,
+        "coefficients": [
+          [
+            0.9999998048552856,
+            3.962734513381515e-06
+          ],
+          [
+            -5.906081489926323e-05,
+            0.9999845384148482
+          ]
+        ]
+      }
+    },
+    {
+      "path": "Resources/irs/york_uni_sportscentre.wav",
+      "sha256": "3dc63c79e7ca03aaa19a2c6a31d18b318549a34360d0cda8b1183cc11dd8950b",
+      "license": "CC-BY-4.0",
+      "title": "Sports Centre, University of York",
+      "attribution": [
+        "www.openairlib.net",
+        "Audiolab, University of York",
+        "Aglaia Foteinou",
+        "Simon Shelley"
+      ],
+      "dataset_url": "https://www.openair.hosted.york.ac.uk/?page_id=665",
+      "license_evidence": "https://web.archive.org/web/20211026201417/https://www.openair.hosted.york.ac.uk/?page_id=665",
+      "license_evidence_capture_sha256": "e0115c32cda17914f6e86d4e223590198b6413c5a55a60449b1413ba69516b85",
+      "source_url": "https://webfiles.york.ac.uk/OPENAIR/IRs/sports-centre-university-york/stereo/sportscentre_ortf.wav",
+      "source_sha256": "404f8f9bed582b234271786b93c1b73881b3b33e2f38c9754e800e5b0cd9a33f",
+      "source_format": {
+        "sample_rate": 96000,
+        "channels": 2,
+        "bits": 24,
+        "format": 1,
+        "frames": 940800
+      },
+      "bundled_format": {
+        "sample_rate": 44100,
+        "channels": 2,
+        "bits": 16,
+        "format": 1,
+        "frames": 221232
+      },
+      "modifications": "Resampled from 96 kHz, converted from 24-bit to 16-bit PCM and shortened from 9.8 to approximately 5.02 seconds.",
+      "comparison": {
+        "method": "FFT-resample source to 44100 Hz; least-squares channel fit over all common frames, at zero start offsets. Exact historical filter/dither settings unknown.",
+        "full_overlap_explained_energy": 0.9996830733885418,
+        "overlap_frames": 221232,
+        "coefficients": [
+          [
+            1.001313103979978,
+            0.0002430102920105496
+          ],
+          [
+            0.00042496184040524557,
+            0.9998762060309869
+          ]
+        ]
+      }
+    },
+    {
+      "path": "Resources/stops/III_cymbel.ae0",
+      "sha256": "c54d73787d0ebf53124acd0b0c7f9089e97eac928a2b323630d10b49ce39aeeb",
+      "embedded_name": "Cymbel$VI",
+      "embedded_copyright": "fa",
+      "embedded_mnemonic": "cymb",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/III_cymbel.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/III_flautodolce4.ae0",
+      "sha256": "7559ad1a3ed284ccc12c3d26d99e0bf673805054ba1dd25109998caf200324ac",
+      "embedded_name": "DulzflÃ¶te$4",
+      "embedded_copyright": "fa",
+      "embedded_mnemonic": "dulz4",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/III_flautodolce4.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/III_principal_8.ae0",
+      "sha256": "4e2f6be0b1262f6c4718dbdd0b73f84378ea43746dbcea79b418a1df3c3d28a7",
+      "embedded_name": "Principal$8",
+      "embedded_copyright": "Matthias Nagorni, modified by FA",
+      "embedded_mnemonic": "prin8",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/III_principal_8.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/II_cornet1.ae0",
+      "sha256": "dab27734b7d51b08449ff9eefff83556dcfcf4e0eab6b5f53b5933b1192fec4e",
+      "embedded_name": "Cornet",
+      "embedded_copyright": "jm",
+      "embedded_mnemonic": "corn1",
+      "embedded_comments": "",
+      "license": "GPL-3.0",
+      "source_url": "https://github.com/SimulPiscator/aeolus/blob/e7887944d24e8e3adbe354e2762349529a099c73/stops/II_cornet1.ae0",
+      "source_commit": "e7887944d24e8e3adbe354e2762349529a099c73",
+      "source_git_blob_sha": "e9f408eb916c7e3fa1549ed8909c68ddfe303efa",
+      "source_contributor": "Simul Piscator (GitHub: SimulPiscator)",
+      "license_evidence": "https://github.com/SimulPiscator/aeolus/blob/e7887944d24e8e3adbe354e2762349529a099c73/COPYING",
+      "comparison": "exact Git blob match at introducing commit"
+    },
+    {
+      "path": "Resources/stops/II_cornet2.ae0",
+      "sha256": "fb04ee6a00af7b943eab8e48399e283501471713127930cfc038a8b96073e8cf",
+      "embedded_name": "Cornet",
+      "embedded_copyright": "jm",
+      "embedded_mnemonic": "corn2",
+      "embedded_comments": "",
+      "license": "GPL-3.0",
+      "source_url": "https://github.com/SimulPiscator/aeolus/blob/e7887944d24e8e3adbe354e2762349529a099c73/stops/II_cornet2.ae0",
+      "source_commit": "e7887944d24e8e3adbe354e2762349529a099c73",
+      "source_git_blob_sha": "56325c9b5f5492a034116be44cd6e7ab2e5636b5",
+      "source_contributor": "Simul Piscator (GitHub: SimulPiscator)",
+      "license_evidence": "https://github.com/SimulPiscator/aeolus/blob/e7887944d24e8e3adbe354e2762349529a099c73/COPYING",
+      "comparison": "exact Git blob match at introducing commit"
+    },
+    {
+      "path": "Resources/stops/II_cornet3.ae0",
+      "sha256": "ce191053ca3e26d52aef4fffdb63fa2ecd76b3c9baa090ae81db0516b9be0081",
+      "embedded_name": "Cornet",
+      "embedded_copyright": "jm",
+      "embedded_mnemonic": "corn3",
+      "embedded_comments": "",
+      "license": "GPL-3.0",
+      "source_url": "https://github.com/SimulPiscator/aeolus/blob/e7887944d24e8e3adbe354e2762349529a099c73/stops/II_cornet3.ae0",
+      "source_commit": "e7887944d24e8e3adbe354e2762349529a099c73",
+      "source_git_blob_sha": "b5fc7b9a303796d5be47cc13b44b8b56bcb5026c",
+      "source_contributor": "Simul Piscator (GitHub: SimulPiscator)",
+      "license_evidence": "https://github.com/SimulPiscator/aeolus/blob/e7887944d24e8e3adbe354e2762349529a099c73/COPYING",
+      "comparison": "exact Git blob match at introducing commit"
+    },
+    {
+      "path": "Resources/stops/II_cornet4.ae0",
+      "sha256": "84cfb0349c53c6d468484ff9494679dfe4b4676f9ac440332096b90cacf5b3f9",
+      "embedded_name": "Cornet",
+      "embedded_copyright": "jm",
+      "embedded_mnemonic": "corn4",
+      "embedded_comments": "",
+      "license": "GPL-3.0",
+      "source_url": "https://github.com/SimulPiscator/aeolus/blob/e7887944d24e8e3adbe354e2762349529a099c73/stops/II_cornet4.ae0",
+      "source_commit": "e7887944d24e8e3adbe354e2762349529a099c73",
+      "source_git_blob_sha": "fc0865bbf732173d3ab5d6ff2b1f1c0cb79e2324",
+      "source_contributor": "Simul Piscator (GitHub: SimulPiscator)",
+      "license_evidence": "https://github.com/SimulPiscator/aeolus/blob/e7887944d24e8e3adbe354e2762349529a099c73/COPYING",
+      "comparison": "exact Git blob match at introducing commit"
+    },
+    {
+      "path": "Resources/stops/II_cornet5.ae0",
+      "sha256": "6f0e06d4adff95d3326a2f7821358d54b66040bc4425de7ff26fd3e2f231da85",
+      "embedded_name": "Cornet",
+      "embedded_copyright": "jm",
+      "embedded_mnemonic": "corn5",
+      "embedded_comments": "",
+      "license": "GPL-3.0",
+      "source_url": "https://github.com/SimulPiscator/aeolus/blob/e7887944d24e8e3adbe354e2762349529a099c73/stops/II_cornet5.ae0",
+      "source_commit": "e7887944d24e8e3adbe354e2762349529a099c73",
+      "source_git_blob_sha": "63a384f9290a765415f7023ad1e2f79f1781e458",
+      "source_contributor": "Simul Piscator (GitHub: SimulPiscator)",
+      "license_evidence": "https://github.com/SimulPiscator/aeolus/blob/e7887944d24e8e3adbe354e2762349529a099c73/COPYING",
+      "comparison": "exact Git blob match at introducing commit"
+    },
+    {
+      "path": "Resources/stops/II_flautodolce4.ae0",
+      "sha256": "cd0a91172d5510d950b8edd647a78061706b613f2fbd6e911cb90f450946029e",
+      "embedded_name": "Flauto$Dolce 4",
+      "embedded_copyright": "",
+      "embedded_mnemonic": "fldo4",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/II_flautodolce4.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/I_cymbel.ae0",
+      "sha256": "e9cdfb89f638f11570ce420becbf78d1a64e3ab892f69b90887f9fdc953f1b57",
+      "embedded_name": "Cymbel$VI",
+      "embedded_copyright": "FA",
+      "embedded_mnemonic": "cymb",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/I_cymbel.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/I_melodia.ae0",
+      "sha256": "beedee1695714027def4ce9cb35f14dc6d02f126fc4f268426d9b1801043279e",
+      "embedded_name": "Melodia",
+      "embedded_copyright": "Nathan Hurst, modified by Fons Adriaensen",
+      "embedded_mnemonic": "melod",
+      "embedded_comments": "This is an attempt to recreate a Harmonium 'Melodia' sto",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/I_melodia.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/I_mixtur5fach.ae0",
+      "sha256": "a56b73bef375e75ae9e3746bbda7e429ff54df134b2b8c07e8bbfce831da22b8",
+      "embedded_name": "Mixtur",
+      "embedded_copyright": "mn",
+      "embedded_mnemonic": "mixt",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/I_mixtur5fach.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/I_octave_1.ae0",
+      "sha256": "7684a4fa07856809ea39877c097c7f039d4afc59c2dbf952796edee88250ed14",
+      "embedded_name": "Octave$1",
+      "embedded_copyright": "FA",
+      "embedded_mnemonic": "oct1",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/I_octave_1.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/I_octave_2.ae0",
+      "sha256": "66d5f994d4e72351d8fc8345cc59486b825350060e0394ce48de23713f370e0f",
+      "embedded_name": "Octave$2",
+      "embedded_copyright": "FA",
+      "embedded_mnemonic": "oct2",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/I_octave_2.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/I_principal_4.ae0",
+      "sha256": "2755794cc36067d617538b0841b3e0fcd4f2c8dd8860b9a4b25cce10ad1b5506",
+      "embedded_name": "Principal$4",
+      "embedded_copyright": "FA",
+      "embedded_mnemonic": "prin4",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/I_principal_4.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/I_principal_8.ae0",
+      "sha256": "9d02a8cf3086c28abf933f52ee994a94f88bb118cbc416c7fb58f508eeed545b",
+      "embedded_name": "Principal$8",
+      "embedded_copyright": "FA",
+      "embedded_mnemonic": "prin8",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/I_principal_8.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/I_quinte_223.ae0",
+      "sha256": "d09bd45455e8647597ad3b46c2ba46d66ed1cdc7627bb63e453b34bdf99c8c75",
+      "embedded_name": "Quint$2 2/3",
+      "embedded_copyright": "mn",
+      "embedded_mnemonic": "qu223",
+      "embedded_comments": "last edited 20040206_16:42",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/I_quinte_223.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/I_quinte_513.ae0",
+      "sha256": "ce54be758c6843d66ee1fd948d86af8f9bace7f0aa56e51691afe55c9e5b2bc2",
+      "embedded_name": "Quint$5 1/3",
+      "embedded_copyright": "mn",
+      "embedded_mnemonic": "qu513",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/I_quinte_513.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/I_trumpet.ae0",
+      "sha256": "22c3b17c3be1b1fdd09aeeba279ee91997d257cf8750b2581ea3bd1875a215af",
+      "embedded_name": "Trumpet",
+      "embedded_copyright": "mn",
+      "embedded_mnemonic": "trum8",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/I_trumpet.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/P_mixtur5fach.ae0",
+      "sha256": "a884f46587e5f674015f7b3a04ca67555713c61206e3a1e541449ff8fbeabcb4",
+      "embedded_name": "Mixtur",
+      "embedded_copyright": "mn",
+      "embedded_mnemonic": "mixt",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/P_mixtur5fach.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/P_octave_1.ae0",
+      "sha256": "f702295d1a4ea847585761228138cba0748fb35f60ffbc3be3e8df407546b097",
+      "embedded_name": "Octave$1",
+      "embedded_copyright": "mn",
+      "embedded_mnemonic": "oct1",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/P_octave_1.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/P_octave_2.ae0",
+      "sha256": "6ffa6437a88b5971330b7b45f7b9904789273f7ed1a847ba8c2082cb52899f4c",
+      "embedded_name": "Octave$2",
+      "embedded_copyright": "mn",
+      "embedded_mnemonic": "oct2",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/P_octave_2.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/P_principal_16.ae0",
+      "sha256": "90251f8401214e4dc52c0ce75fd8fed65afc23200bef412dcebf443a2722f201",
+      "embedded_name": "Principal$16",
+      "embedded_copyright": "mn",
+      "embedded_mnemonic": "prin16",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/P_principal_16.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/P_principal_4.ae0",
+      "sha256": "0342cc9515f59a96b4f7e3e7e79a447de51e295e84a63018bab53e140af9f687",
+      "embedded_name": "Principal$4",
+      "embedded_copyright": "mn",
+      "embedded_mnemonic": "prin4",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/P_principal_4.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/P_principal_8.ae0",
+      "sha256": "064d7d1314a472c6ade8e0d8edb2ca832bd938e0ba57d86b247e526d029fa50b",
+      "embedded_name": "Principal$8",
+      "embedded_copyright": "mn",
+      "embedded_mnemonic": "prin8",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/P_principal_8.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/P_quinte_223.ae0",
+      "sha256": "c229587c96afd822818dca07022e045f10c7a7b870eaac819dcee58f67b45666",
+      "embedded_name": "Quint$2 2/3",
+      "embedded_copyright": "mn",
+      "embedded_mnemonic": "qu223",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/P_quinte_223.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/P_quinte_513.ae0",
+      "sha256": "102fb9354ed821196e124929c84d55a52dc516ee6889d2fc5209861f12a4de9f",
+      "embedded_name": "Quint$5 1/3",
+      "embedded_copyright": "mn",
+      "embedded_mnemonic": "qu513",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/P_quinte_513.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/P_trumpet.ae0",
+      "sha256": "3e190514285f5ee8ec08aa6abfeea6b8af747d7ff849960214cee116104da527",
+      "embedded_name": "Trumpet",
+      "embedded_copyright": "mn",
+      "embedded_mnemonic": "trum8",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/P_trumpet.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/bassoon.ae0",
+      "sha256": "58270eb590e2ee79da9aed057a0c415656adf08dc651148c15e07acf4359170d",
+      "embedded_name": "Fagott$16",
+      "embedded_copyright": "mn",
+      "embedded_mnemonic": "bass18",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/bassoon.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/bombarde.ae0",
+      "sha256": "9f9296f95bb74374dc0891416ae5e699e1c4c40bb5b15f964158417be7148c62",
+      "embedded_name": "Bombarde$32",
+      "embedded_copyright": "fa",
+      "embedded_mnemonic": "bomb32",
+      "embedded_comments": "Created at the occasion Paul Davis' wedding,   2/10/2004",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/bombarde.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/bourdon16.ae0",
+      "sha256": "3660c7e1b766e62fa6d60f11b1b86c9560159ea1ae814373a885e6913548fcd6",
+      "embedded_name": "Subbass$16",
+      "embedded_copyright": "FA",
+      "embedded_mnemonic": "subb16",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/bourdon16.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/celesta.ae0",
+      "sha256": "5707dbb2cfedd4891bd1a37ad29e5c5fe26b4b647f6dee836eb43973ed86d340",
+      "embedded_name": "Celesta$8",
+      "embedded_copyright": "mn",
+      "embedded_mnemonic": "celes8",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/celesta.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/cromhorne.ae0",
+      "sha256": "b2b2873b769f7f061358e4fa3dddc61392cea49f87c23dd42139573e98dbb345",
+      "embedded_name": "Krumhorn",
+      "embedded_copyright": "mn",
+      "embedded_mnemonic": "krumh",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/cromhorne.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/flute2.ae0",
+      "sha256": "938747f14294dc94eca49db2057412bb64d74da8ddf0dc2b22c29424db91c36e",
+      "embedded_name": "FlÃ¶te$2",
+      "embedded_copyright": "FA",
+      "embedded_mnemonic": "flute2",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/flute2.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/flute4.ae0",
+      "sha256": "87c1579cd9db66384faf85d3d33bf5a0d924b8e42b93d096331cb49a5c61a7f0",
+      "embedded_name": "FlÃ¶te$4",
+      "embedded_copyright": "FA",
+      "embedded_mnemonic": "flute4",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/flute4.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/flute8.ae0",
+      "sha256": "c48a84f50ede8c645bcade6a2e96cdeec5da4e1e6f4caf5722d53b7165a42614",
+      "embedded_name": "FlÃ¶te$8",
+      "embedded_copyright": "FA",
+      "embedded_mnemonic": "",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/flute8.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/gemshorn8.ae0",
+      "sha256": "9312e32722ba1974bb394bf04fcabbbf9b191e80906e5c5dc5032b090deda3f9",
+      "embedded_name": "Gemshorn$8",
+      "embedded_copyright": "FA",
+      "embedded_mnemonic": "gems8",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/gemshorn8.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/harmflute8.ae0",
+      "sha256": "3278f616ac3fe13e478c150c8eaa4cb16d1e75dacf7bacbed90c5173d99dee9f",
+      "embedded_name": "Harmonic$Flute 8",
+      "embedded_copyright": "fa",
+      "embedded_mnemonic": "hafl8",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/harmflute8.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/mixtur1.ae0",
+      "sha256": "fd23f584613a80048dcf4efd2b4b68f608802b504e6f0f092519880a69421c83",
+      "embedded_name": "Mixtur$Chor 1",
+      "embedded_copyright": "jm",
+      "embedded_mnemonic": "mix1",
+      "embedded_comments": "$36:0 48:2 60:2+2/3 72:4$",
+      "license": "GPL-3.0",
+      "source_url": "https://github.com/SimulPiscator/aeolus/blob/e7887944d24e8e3adbe354e2762349529a099c73/stops/mixtur1.ae0",
+      "source_commit": "e7887944d24e8e3adbe354e2762349529a099c73",
+      "source_git_blob_sha": "31d28f71f98b0b898d4df830782810f969447bfa",
+      "source_contributor": "Simul Piscator (GitHub: SimulPiscator)",
+      "license_evidence": "https://github.com/SimulPiscator/aeolus/blob/e7887944d24e8e3adbe354e2762349529a099c73/COPYING",
+      "comparison": "exact Git blob match at introducing commit"
+    },
+    {
+      "path": "Resources/stops/mixtur2.ae0",
+      "sha256": "8d16ce0e2ffce1103aa4bda65cd64216b22e596570b568183314f23daf978d5c",
+      "embedded_name": "Mixtur$Chor 2",
+      "embedded_copyright": "jm",
+      "embedded_mnemonic": "mix2",
+      "embedded_comments": "$36:1+1/3 60:2 72:2+2/3 84:4$",
+      "license": "GPL-3.0",
+      "source_url": "https://github.com/SimulPiscator/aeolus/blob/e7887944d24e8e3adbe354e2762349529a099c73/stops/mixtur2.ae0",
+      "source_commit": "e7887944d24e8e3adbe354e2762349529a099c73",
+      "source_git_blob_sha": "e4f9e81397ba4a8157b6302a00673f05db9667a2",
+      "source_contributor": "Simul Piscator (GitHub: SimulPiscator)",
+      "license_evidence": "https://github.com/SimulPiscator/aeolus/blob/e7887944d24e8e3adbe354e2762349529a099c73/COPYING",
+      "comparison": "exact Git blob match at introducing commit"
+    },
+    {
+      "path": "Resources/stops/mixtur3.ae0",
+      "sha256": "67ffb30e2ebda2a0eb836d6e02d2f1a16a6a5f14c303e7c1424764fae6331e91",
+      "embedded_name": "Mixtur$Chor 3",
+      "embedded_copyright": "jm",
+      "embedded_mnemonic": "mix3",
+      "embedded_comments": "$36:1 60:1+1/3 72:2 84:2+2/3$",
+      "license": "GPL-3.0",
+      "source_url": "https://github.com/SimulPiscator/aeolus/blob/e7887944d24e8e3adbe354e2762349529a099c73/stops/mixtur3.ae0",
+      "source_commit": "e7887944d24e8e3adbe354e2762349529a099c73",
+      "source_git_blob_sha": "ceed0776f638a22ae8d05a9a8fdd1fe5604f40fc",
+      "source_contributor": "Simul Piscator (GitHub: SimulPiscator)",
+      "license_evidence": "https://github.com/SimulPiscator/aeolus/blob/e7887944d24e8e3adbe354e2762349529a099c73/COPYING",
+      "comparison": "exact Git blob match at introducing commit"
+    },
+    {
+      "path": "Resources/stops/mixtur4.ae0",
+      "sha256": "8c0bf5534685908d8c084432ef51f6a5528b575d24187582712d735cad6f17e4",
+      "embedded_name": "Mixtur$Chor 4",
+      "embedded_copyright": "jm",
+      "embedded_mnemonic": "mix4",
+      "embedded_comments": "$36:2/3 60:1 72:1+1/3 84:2$",
+      "license": "GPL-3.0",
+      "source_url": "https://github.com/SimulPiscator/aeolus/blob/e7887944d24e8e3adbe354e2762349529a099c73/stops/mixtur4.ae0",
+      "source_commit": "e7887944d24e8e3adbe354e2762349529a099c73",
+      "source_git_blob_sha": "790328e53f3c11d5ab72369e86fafd6a1452e41b",
+      "source_contributor": "Simul Piscator (GitHub: SimulPiscator)",
+      "license_evidence": "https://github.com/SimulPiscator/aeolus/blob/e7887944d24e8e3adbe354e2762349529a099c73/COPYING",
+      "comparison": "exact Git blob match at introducing commit"
+    },
+    {
+      "path": "Resources/stops/mixtur5.ae0",
+      "sha256": "88edf7b08de5cfd92a11c1d26a2a7ce02357bf764b349c7000683f5f5f7eb869",
+      "embedded_name": "Mixturterz",
+      "embedded_copyright": "jm",
+      "embedded_mnemonic": "mix5",
+      "embedded_comments": "$36:0 42:4/5 54:8/5 66:16/5 78:32/5 90:64/5$",
+      "license": "GPL-3.0",
+      "source_url": "https://github.com/SimulPiscator/aeolus/blob/e7887944d24e8e3adbe354e2762349529a099c73/stops/mixtur5.ae0",
+      "source_commit": "e7887944d24e8e3adbe354e2762349529a099c73",
+      "source_git_blob_sha": "2b0b445b7eb3da066ca8cb234b0a6cda8d5c3b37",
+      "source_contributor": "Simul Piscator (GitHub: SimulPiscator)",
+      "license_evidence": "https://github.com/SimulPiscator/aeolus/blob/e7887944d24e8e3adbe354e2762349529a099c73/COPYING",
+      "comparison": "exact Git blob match at introducing commit"
+    },
+    {
+      "path": "Resources/stops/nasard.ae0",
+      "sha256": "b89a58102d6065956a2596261c84d95338997f5fdc6a024eb0f458600fdcde45",
+      "embedded_name": "Nasard$2 2/3",
+      "embedded_copyright": "fa",
+      "embedded_mnemonic": "nasard",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/nasard.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/new_oboe_fa.ae0",
+      "sha256": "7d2894d4e106072eba9dc6bf36e6ccffb860bf17c0219ef4704e4519ea19fdf7",
+      "embedded_name": "Oboe",
+      "embedded_copyright": "fa+rj",
+      "embedded_mnemonic": "oboe",
+      "embedded_comments": "Based on samples by Reiner Janke",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/new_oboe_fa.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/none.ae0",
+      "sha256": "1cc40c765f9d175329b19a0f7b12bf645d7ac1f1b0d79a3efb307bb44541af6b",
+      "embedded_name": "None",
+      "embedded_copyright": "FA",
+      "embedded_mnemonic": "none",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/none.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/ottavina2.ae0",
+      "sha256": "59956060e9cfab7f288e469de015794276c954dae8e998bad96f53da8df8e3d3",
+      "embedded_name": "Ottavina$2",
+      "embedded_copyright": "fa",
+      "embedded_mnemonic": "otta2",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/ottavina2.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/quintadena.ae0",
+      "sha256": "4ef774061065ee3d0f43ea5d760dcf205d6a730285ca50c96023d8eb9ab82e40",
+      "embedded_name": "Quinta-$dena 8",
+      "embedded_copyright": "FA",
+      "embedded_mnemonic": "quna8",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/quintadena.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/quintflute.ae0",
+      "sha256": "3be55e51427cb67530acc7b0bdf521b2b3ea9e42491c9efc9e77b102c97c6124",
+      "embedded_name": "QuintflÃ¶te$2 2/3",
+      "embedded_copyright": "fa",
+      "embedded_mnemonic": "fl223",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/quintflute.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/rohrflute4.ae0",
+      "sha256": "c3bc77b5f75c15d7ccea71f2b457be1adfd0e6173edb3ad3cd28c5d131d4c225",
+      "embedded_name": "RohrflÃ¶te$4",
+      "embedded_copyright": "fa",
+      "embedded_mnemonic": "rofl4",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/rohrflute4.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/rohrflute8.ae0",
+      "sha256": "ec7101346d90a5e13f5eecd163ec904e116745716ba5fc014042b4a0e3344899",
+      "embedded_name": "RohrflÃ¶te$8",
+      "embedded_copyright": "fa",
+      "embedded_mnemonic": "rofl8",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/rohrflute8.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/septime.ae0",
+      "sha256": "24ec2ff5fe516869542252acb0eb1ae76612d3ae6b3a9f9407c8b874e435b669",
+      "embedded_name": "Septime",
+      "embedded_copyright": "mn",
+      "embedded_mnemonic": "septim",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/septime.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/sesqualtera.ae0",
+      "sha256": "64d03a2b0031a6a209a2af3d66718dca42f5afc35f97cbcbb5b7685a0aa12e73",
+      "embedded_name": "Sesqui-$altera",
+      "embedded_copyright": "mn",
+      "embedded_mnemonic": "sesqui",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/sesqualtera.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/sifflet1.ae0",
+      "sha256": "d1702a5f2d59235e2e59fe1f8805e440f32afc64e1f8bcfebe2cea676734942d",
+      "embedded_name": "Sifflet$1",
+      "embedded_copyright": "fa",
+      "embedded_mnemonic": "siff1",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/sifflet1.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/suabile.ae0",
+      "sha256": "d1b54470bf99e4a36204640095170ccb161fd48a785dad46d4fc22f8b2efe875",
+      "embedded_name": "Suabile$8",
+      "embedded_copyright": "FA",
+      "embedded_mnemonic": "suab8",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/suabile.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/superoctave2.ae0",
+      "sha256": "bdf223792ca914c0f2121a412542e1902abc6a70edb3fbefc1ec7830d4b8df08",
+      "embedded_name": "Super-$octave 2",
+      "embedded_copyright": "fa",
+      "embedded_mnemonic": "soct2",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/superoctave2.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/tertia.ae0",
+      "sha256": "c1672501c565a53aa4ccf51155372b5fe597dea71950626feb563383a2c8b4c4",
+      "embedded_name": "Tertia$1 3/5",
+      "embedded_copyright": "fa",
+      "embedded_mnemonic": "tertia",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/tertia.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/tibia8.ae0",
+      "sha256": "db8f77f8ce1124cd6391d5ab004d1a16dbe76e02df39f646fa4b5cd6147560e2",
+      "embedded_name": "Tibia$8",
+      "embedded_copyright": "fa",
+      "embedded_mnemonic": "tibia",
+      "embedded_comments": "",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/tibia8.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/trombone.ae0",
+      "sha256": "f7929cfaabefe5d397e3a528d4c9f28ebd0132463f1b3018522989b0818ac2f7",
+      "embedded_name": " Trombone$16",
+      "embedded_copyright": "fa",
+      "embedded_mnemonic": "trom16",
+      "embedded_comments": "Based on Thomaskirche recording  ",
+      "license": "GPL-2.0-or-later",
+      "source_url": "https://deb.debian.org/debian/pool/main/s/stops/stops_0.3.0.orig.tar.gz",
+      "source_archive_path": "stops-0.3.0.orig/trombone.ae0",
+      "license_evidence": "https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/",
+      "comparison": "byte-for-byte identical to original archive member"
+    },
+    {
+      "path": "Resources/stops/custom/III_bassoon_ae0.json",
+      "sha256": "87569c038acab770e0aee3045cc87b217651611f3dff33110413803a62800953",
+      "embedded_copyright": "mn",
+      "source_contributor": "Arthur Benilov",
+      "source_commit": "90e79e34b990e39c465b271e187dbafc85987f5d",
+      "source_date": "2021-06-09T20:00:32+01:00",
+      "source_url": "https://github.com/Archie3d/aeolus_plugin/commit/90e79e34b990e39c465b271e187dbafc85987f5d",
+      "license": "GPL-2.0-or-later (inherited parameters); GPL-3.0 (plugin additions)",
+      "license_evidence": "https://github.com/Archie3d/aeolus_plugin/blob/7a006aee4d910f63f31f066544e77163229dfb0a/LICENSE.txt",
+      "modifications": "JSON translation / metadata adaptation of inherited stop parameters",
+      "parameter_source": "Resources/stops/bassoon.ae0",
+      "comparison": "all numerical parameter arrays/masks match within 1e-7; header metadata may differ"
+    },
+    {
+      "path": "Resources/stops/custom/III_violin_8_ae0.json",
+      "sha256": "6b42a8468f46e77b24ce64803582ab3860ea49748c096b618c6ad46306840bd3",
+      "embedded_copyright": "AB",
+      "source_contributor": "Arthur Benilov",
+      "source_commit": "2301963f828c37b5cd735d30d2d365d2fd5f860c",
+      "source_date": "2021-08-15T20:51:26+01:00",
+      "source_url": "https://github.com/Archie3d/aeolus_plugin/commit/2301963f828c37b5cd735d30d2d365d2fd5f860c",
+      "license": "GPL-3.0 (upstream plugin distribution)",
+      "license_evidence": "https://github.com/Archie3d/aeolus_plugin/blob/7a006aee4d910f63f31f066544e77163229dfb0a/LICENSE.txt",
+      "modifications": "Upstream JSON-model contribution; preserve AB/ab credit and original history"
+    },
+    {
+      "path": "Resources/stops/custom/II_quint_113_ae0.json",
+      "sha256": "f702da9df5b267c57f47a317eeba68acb0032435ba05dc9600ae632dd1062093",
+      "embedded_copyright": "FA",
+      "source_contributor": "Arthur Benilov",
+      "source_commit": "d461d29361f27be3fc33daf7c2f9160afa6b6136",
+      "source_date": "2021-08-05T00:38:49+01:00",
+      "source_url": "https://github.com/Archie3d/aeolus_plugin/commit/d461d29361f27be3fc33daf7c2f9160afa6b6136",
+      "license": "GPL-2.0-or-later (inherited parameters); GPL-3.0 (plugin additions)",
+      "license_evidence": "https://github.com/Archie3d/aeolus_plugin/blob/7a006aee4d910f63f31f066544e77163229dfb0a/LICENSE.txt",
+      "modifications": "JSON translation / metadata adaptation of inherited stop parameters",
+      "parameter_source": "Resources/stops/I_octave_2.ae0",
+      "comparison": "all numerical parameter arrays/masks match within 1e-7; header metadata may differ"
+    },
+    {
+      "path": "Resources/stops/custom/I_fourniture5_ae0.json",
+      "sha256": "1b8a2c9694bea70b83298ddda64083e4c044acbe351a2a9cc7c8175117afd8da",
+      "embedded_copyright": "mn",
+      "source_contributor": "Arthur Benilov",
+      "source_commit": "d461d29361f27be3fc33daf7c2f9160afa6b6136",
+      "source_date": "2021-08-05T00:38:49+01:00",
+      "source_url": "https://github.com/Archie3d/aeolus_plugin/commit/d461d29361f27be3fc33daf7c2f9160afa6b6136",
+      "license": "GPL-2.0-or-later (inherited parameters); GPL-3.0 (plugin additions)",
+      "license_evidence": "https://github.com/Archie3d/aeolus_plugin/blob/7a006aee4d910f63f31f066544e77163229dfb0a/LICENSE.txt",
+      "modifications": "JSON translation / metadata adaptation of inherited stop parameters",
+      "parameter_source": "Resources/stops/I_mixtur5fach.ae0",
+      "comparison": "all numerical parameter arrays/masks match within 1e-7; header metadata may differ"
+    },
+    {
+      "path": "Resources/stops/custom/I_octave_29th_ae0.json",
+      "sha256": "006af7045eb5ff1e5287ce78c51e4ae7a6453f0c8a4216d7d07094eb12dbce95",
+      "embedded_copyright": "FA",
+      "source_contributor": "Arthur Benilov",
+      "source_commit": "e333d444d88b597cbdb2b34fecd57276282bffd6",
+      "source_date": "2021-08-13T19:33:35+01:00",
+      "source_url": "https://github.com/Archie3d/aeolus_plugin/commit/e333d444d88b597cbdb2b34fecd57276282bffd6",
+      "license": "GPL-2.0-or-later (inherited parameters); GPL-3.0 (plugin additions)",
+      "license_evidence": "https://github.com/Archie3d/aeolus_plugin/blob/7a006aee4d910f63f31f066544e77163229dfb0a/LICENSE.txt",
+      "modifications": "JSON translation / metadata adaptation of inherited stop parameters",
+      "parameter_source": "Resources/stops/I_octave_1.ae0",
+      "comparison": "all numerical parameter arrays/masks match within 1e-7; header metadata may differ"
+    },
+    {
+      "path": "Resources/stops/custom/I_principal_16_ae0.json",
+      "sha256": "ff63f7cd90f60d228f8c6419547f70596d86f9e4e10b7d7a2477ef1030bfc004",
+      "embedded_copyright": "mn",
+      "source_contributor": "Arthur Benilov",
+      "source_commit": "655eaf40dbdcc39f0b87bbf5d015df37365fa89f",
+      "source_date": "2021-06-15T17:13:58+01:00",
+      "source_url": "https://github.com/Archie3d/aeolus_plugin/commit/655eaf40dbdcc39f0b87bbf5d015df37365fa89f",
+      "license": "GPL-2.0-or-later (inherited parameters); GPL-3.0 (plugin additions)",
+      "license_evidence": "https://github.com/Archie3d/aeolus_plugin/blob/7a006aee4d910f63f31f066544e77163229dfb0a/LICENSE.txt",
+      "modifications": "JSON translation / metadata adaptation of inherited stop parameters",
+      "parameter_source": "Resources/stops/P_principal_16.ae0",
+      "comparison": "all numerical parameter arrays/masks match within 1e-7; header metadata may differ"
+    },
+    {
+      "path": "Resources/stops/custom/I_principal_5th_ae0.json",
+      "sha256": "b781cfe73d9e9261fc12d3ba998d98cc56ebf539454eb3176fbcf1f2e6518943",
+      "embedded_copyright": "FA",
+      "source_contributor": "Arthur Benilov",
+      "source_commit": "e333d444d88b597cbdb2b34fecd57276282bffd6",
+      "source_date": "2021-08-13T19:33:35+01:00",
+      "source_url": "https://github.com/Archie3d/aeolus_plugin/commit/e333d444d88b597cbdb2b34fecd57276282bffd6",
+      "license": "GPL-2.0-or-later (inherited parameters); GPL-3.0 (plugin additions)",
+      "license_evidence": "https://github.com/Archie3d/aeolus_plugin/blob/7a006aee4d910f63f31f066544e77163229dfb0a/LICENSE.txt",
+      "modifications": "JSON translation / metadata adaptation of inherited stop parameters",
+      "parameter_source": "Resources/stops/I_principal_8.ae0",
+      "comparison": "all numerical parameter arrays/masks match within 1e-7; header metadata may differ"
+    },
+    {
+      "path": "Resources/stops/custom/I_quint_26th_ae0.json",
+      "sha256": "985bc40eea8966a75f78ec0734ccac07e044a3ba6b9c65eba36bd86ff3a1b883",
+      "embedded_copyright": "FA",
+      "source_contributor": "Arthur Benilov",
+      "source_commit": "f7442c585b79413f55c1298a88faf84d0d609606",
+      "source_date": "2021-08-15T00:20:55+01:00",
+      "source_url": "https://github.com/Archie3d/aeolus_plugin/commit/f7442c585b79413f55c1298a88faf84d0d609606",
+      "license": "GPL-2.0-or-later (inherited parameters); GPL-3.0 (plugin additions)",
+      "license_evidence": "https://github.com/Archie3d/aeolus_plugin/blob/7a006aee4d910f63f31f066544e77163229dfb0a/LICENSE.txt",
+      "modifications": "JSON translation / metadata adaptation of inherited stop parameters",
+      "parameter_source": "Resources/stops/I_octave_1.ae0",
+      "comparison": "all numerical parameter arrays/masks match within 1e-7; header metadata may differ"
+    },
+    {
+      "path": "Resources/stops/custom/I_trumpet4_ae0.json",
+      "sha256": "99640c5e5009fb8083f20046a6a829a4b991b7e2d40aa9d2b15d93984bfb83d8",
+      "embedded_copyright": "mn",
+      "source_contributor": "Arthur Benilov",
+      "source_commit": "90e79e34b990e39c465b271e187dbafc85987f5d",
+      "source_date": "2021-06-09T20:00:32+01:00",
+      "source_url": "https://github.com/Archie3d/aeolus_plugin/commit/90e79e34b990e39c465b271e187dbafc85987f5d",
+      "license": "GPL-2.0-or-later (inherited parameters); GPL-3.0 (plugin additions)",
+      "license_evidence": "https://github.com/Archie3d/aeolus_plugin/blob/7a006aee4d910f63f31f066544e77163229dfb0a/LICENSE.txt",
+      "modifications": "JSON translation / metadata adaptation of inherited stop parameters",
+      "parameter_source": "Resources/stops/I_trumpet.ae0",
+      "comparison": "all numerical parameter arrays/masks match within 1e-7; header metadata may differ"
+    },
+    {
+      "path": "Resources/stops/custom/P_flute8_ae0.json",
+      "sha256": "c322dcde6413023b951c8d95a715886b4fa2c309811dcdd2de7148f0e6561c08",
+      "embedded_copyright": "FA",
+      "source_contributor": "Arthur Benilov",
+      "source_commit": "90e79e34b990e39c465b271e187dbafc85987f5d",
+      "source_date": "2021-06-09T20:00:32+01:00",
+      "source_url": "https://github.com/Archie3d/aeolus_plugin/commit/90e79e34b990e39c465b271e187dbafc85987f5d",
+      "license": "GPL-2.0-or-later (inherited parameters); GPL-3.0 (plugin additions)",
+      "license_evidence": "https://github.com/Archie3d/aeolus_plugin/blob/7a006aee4d910f63f31f066544e77163229dfb0a/LICENSE.txt",
+      "modifications": "JSON translation / metadata adaptation of inherited stop parameters",
+      "parameter_source": "Resources/stops/flute8.ae0",
+      "comparison": "all numerical parameter arrays/masks match within 1e-7; header metadata may differ"
+    },
+    {
+      "path": "Resources/stops/custom/P_violoncell_8_ae0.json",
+      "sha256": "1c64ee407edfaa07b9191801b84b319f1a08ef3079cdaaa6663bdc62384aa671",
+      "embedded_copyright": "AB",
+      "source_contributor": "Arthur Benilov",
+      "source_commit": "2301963f828c37b5cd735d30d2d365d2fd5f860c",
+      "source_date": "2021-08-15T20:51:26+01:00",
+      "source_url": "https://github.com/Archie3d/aeolus_plugin/commit/2301963f828c37b5cd735d30d2d365d2fd5f860c",
+      "license": "GPL-3.0 (upstream plugin distribution)",
+      "license_evidence": "https://github.com/Archie3d/aeolus_plugin/blob/7a006aee4d910f63f31f066544e77163229dfb0a/LICENSE.txt",
+      "modifications": "Upstream JSON-model contribution; preserve AB/ab credit and original history"
+    },
+    {
+      "path": "Resources/stops/custom/harm12_ae0.json",
+      "sha256": "93de807d6d8b7041c6f0f0582d1353cde0d02ab9459363c11d84df1bdf26f748",
+      "embedded_copyright": "AB",
+      "source_contributor": "Arthur Benilov",
+      "source_commit": "def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "source_date": "2021-08-17T21:03:50+01:00",
+      "source_url": "https://github.com/Archie3d/aeolus_plugin/commit/def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "license": "GPL-3.0 (plugin additions); preserve GPL-2.0-or-later for inherited Aeolus material",
+      "license_evidence": "https://github.com/Archie3d/aeolus_plugin/blob/7a006aee4d910f63f31f066544e77163229dfb0a/LICENSE.txt",
+      "modifications": "Upstream JSON-model contribution; preserve AB/ab credit and original history"
+    },
+    {
+      "path": "Resources/stops/custom/harm15_ae0.json",
+      "sha256": "fe73a6940733fda127e41ccb0ff9a3b8947e4fe21c41dd5ed337425875cc6864",
+      "embedded_copyright": "AB",
+      "source_contributor": "Arthur Benilov",
+      "source_commit": "def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "source_date": "2021-08-17T21:03:50+01:00",
+      "source_url": "https://github.com/Archie3d/aeolus_plugin/commit/def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "license": "GPL-3.0 (plugin additions); preserve GPL-2.0-or-later for inherited Aeolus material",
+      "license_evidence": "https://github.com/Archie3d/aeolus_plugin/blob/7a006aee4d910f63f31f066544e77163229dfb0a/LICENSE.txt",
+      "modifications": "Upstream JSON-model contribution; preserve AB/ab credit and original history"
+    },
+    {
+      "path": "Resources/stops/custom/harm17_ae0.json",
+      "sha256": "2fdc93ce198ef8d682d8c7896f6397bd3c9812d559a6d55a7a361be6767a596d",
+      "embedded_copyright": "AB",
+      "source_contributor": "Arthur Benilov",
+      "source_commit": "def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "source_date": "2021-08-17T21:03:50+01:00",
+      "source_url": "https://github.com/Archie3d/aeolus_plugin/commit/def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "license": "GPL-3.0 (plugin additions); preserve GPL-2.0-or-later for inherited Aeolus material",
+      "license_evidence": "https://github.com/Archie3d/aeolus_plugin/blob/7a006aee4d910f63f31f066544e77163229dfb0a/LICENSE.txt",
+      "modifications": "Upstream JSON-model contribution; preserve AB/ab credit and original history"
+    },
+    {
+      "path": "Resources/stops/custom/harm19_ae0.json",
+      "sha256": "a3c3b04eada2f6a17246ab31dcd2467e6270f524c074bf94c5afb8e9726d5935",
+      "embedded_copyright": "AB",
+      "source_contributor": "Arthur Benilov",
+      "source_commit": "def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "source_date": "2021-08-17T21:03:50+01:00",
+      "source_url": "https://github.com/Archie3d/aeolus_plugin/commit/def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "license": "GPL-3.0 (plugin additions); preserve GPL-2.0-or-later for inherited Aeolus material",
+      "license_evidence": "https://github.com/Archie3d/aeolus_plugin/blob/7a006aee4d910f63f31f066544e77163229dfb0a/LICENSE.txt",
+      "modifications": "Upstream JSON-model contribution; preserve AB/ab credit and original history"
+    },
+    {
+      "path": "Resources/stops/custom/harm1_2_ae0.json",
+      "sha256": "d709f1260b9daebf9f785e8d4a2f85921485efd8aba8892eb670a1a50a62c3db",
+      "embedded_copyright": "AB",
+      "source_contributor": "Arthur Benilov",
+      "source_commit": "def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "source_date": "2021-08-17T21:03:50+01:00",
+      "source_url": "https://github.com/Archie3d/aeolus_plugin/commit/def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "license": "GPL-3.0 (plugin additions); preserve GPL-2.0-or-later for inherited Aeolus material",
+      "license_evidence": "https://github.com/Archie3d/aeolus_plugin/blob/7a006aee4d910f63f31f066544e77163229dfb0a/LICENSE.txt",
+      "modifications": "Upstream JSON-model contribution; preserve AB/ab credit and original history"
+    },
+    {
+      "path": "Resources/stops/custom/harm1_ae0.json",
+      "sha256": "886d40de4be21edaafc0ced480422256254fe771eca07856b5f70df5438d18d5",
+      "embedded_copyright": "AB",
+      "source_contributor": "Arthur Benilov",
+      "source_commit": "def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "source_date": "2021-08-17T21:03:50+01:00",
+      "source_url": "https://github.com/Archie3d/aeolus_plugin/commit/def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "license": "GPL-3.0 (plugin additions); preserve GPL-2.0-or-later for inherited Aeolus material",
+      "license_evidence": "https://github.com/Archie3d/aeolus_plugin/blob/7a006aee4d910f63f31f066544e77163229dfb0a/LICENSE.txt",
+      "modifications": "Upstream JSON-model contribution; preserve AB/ab credit and original history"
+    },
+    {
+      "path": "Resources/stops/custom/harm22_ae0.json",
+      "sha256": "64037be06313448996cd4e04e19f3c4596fc72209f3ed72bf152f63ae3643916",
+      "embedded_copyright": "AB",
+      "source_contributor": "Arthur Benilov",
+      "source_commit": "def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "source_date": "2021-08-17T21:03:50+01:00",
+      "source_url": "https://github.com/Archie3d/aeolus_plugin/commit/def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "license": "GPL-3.0 (plugin additions); preserve GPL-2.0-or-later for inherited Aeolus material",
+      "license_evidence": "https://github.com/Archie3d/aeolus_plugin/blob/7a006aee4d910f63f31f066544e77163229dfb0a/LICENSE.txt",
+      "modifications": "Upstream JSON-model contribution; preserve AB/ab credit and original history"
+    },
+    {
+      "path": "Resources/stops/custom/harm24_ae0.json",
+      "sha256": "766f64a6998463f3f1d8f8328dde331e060f9320db5e5e8dc5f39e0a925397ca",
+      "embedded_copyright": "AB",
+      "source_contributor": "Arthur Benilov",
+      "source_commit": "def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "source_date": "2021-08-17T21:03:50+01:00",
+      "source_url": "https://github.com/Archie3d/aeolus_plugin/commit/def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "license": "GPL-3.0 (plugin additions); preserve GPL-2.0-or-later for inherited Aeolus material",
+      "license_evidence": "https://github.com/Archie3d/aeolus_plugin/blob/7a006aee4d910f63f31f066544e77163229dfb0a/LICENSE.txt",
+      "modifications": "Upstream JSON-model contribution; preserve AB/ab credit and original history"
+    },
+    {
+      "path": "Resources/stops/custom/harm26_ae0.json",
+      "sha256": "ec0c226d11b95219d9c2b8ab04064348d491f29af3493f6e356a871afcef9f43",
+      "embedded_copyright": "AB",
+      "source_contributor": "Arthur Benilov",
+      "source_commit": "def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "source_date": "2021-08-17T21:03:50+01:00",
+      "source_url": "https://github.com/Archie3d/aeolus_plugin/commit/def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "license": "GPL-3.0 (plugin additions); preserve GPL-2.0-or-later for inherited Aeolus material",
+      "license_evidence": "https://github.com/Archie3d/aeolus_plugin/blob/7a006aee4d910f63f31f066544e77163229dfb0a/LICENSE.txt",
+      "modifications": "Upstream JSON-model contribution; preserve AB/ab credit and original history"
+    },
+    {
+      "path": "Resources/stops/custom/harm29_ae0.json",
+      "sha256": "60a429b79aada4185f3c0e52129071d0a878dbd194b446d955b32457ac08ea72",
+      "embedded_copyright": "AB",
+      "source_contributor": "Arthur Benilov",
+      "source_commit": "def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "source_date": "2021-08-17T21:03:50+01:00",
+      "source_url": "https://github.com/Archie3d/aeolus_plugin/commit/def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "license": "GPL-3.0 (plugin additions); preserve GPL-2.0-or-later for inherited Aeolus material",
+      "license_evidence": "https://github.com/Archie3d/aeolus_plugin/blob/7a006aee4d910f63f31f066544e77163229dfb0a/LICENSE.txt",
+      "modifications": "Upstream JSON-model contribution; preserve AB/ab credit and original history"
+    },
+    {
+      "path": "Resources/stops/custom/harm33_ae0.json",
+      "sha256": "f13256a1526b720fa0d3355849dc0f65585c83fbcf3198f73faab7cbc150b287",
+      "embedded_copyright": "AB",
+      "source_contributor": "Arthur Benilov",
+      "source_commit": "def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "source_date": "2021-08-17T21:03:50+01:00",
+      "source_url": "https://github.com/Archie3d/aeolus_plugin/commit/def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "license": "GPL-3.0 (plugin additions); preserve GPL-2.0-or-later for inherited Aeolus material",
+      "license_evidence": "https://github.com/Archie3d/aeolus_plugin/blob/7a006aee4d910f63f31f066544e77163229dfb0a/LICENSE.txt",
+      "modifications": "Upstream JSON-model contribution; preserve AB/ab credit and original history"
+    },
+    {
+      "path": "Resources/stops/custom/harm36_ae0.json",
+      "sha256": "517d5d562de95cbf2225c1486cf4a3867f3a4063e83ce9ab4b29b332189feb16",
+      "embedded_copyright": "AB",
+      "source_contributor": "Arthur Benilov",
+      "source_commit": "def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "source_date": "2021-08-17T21:03:50+01:00",
+      "source_url": "https://github.com/Archie3d/aeolus_plugin/commit/def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "license": "GPL-3.0 (plugin additions); preserve GPL-2.0-or-later for inherited Aeolus material",
+      "license_evidence": "https://github.com/Archie3d/aeolus_plugin/blob/7a006aee4d910f63f31f066544e77163229dfb0a/LICENSE.txt",
+      "modifications": "Upstream JSON-model contribution; preserve AB/ab credit and original history"
+    },
+    {
+      "path": "Resources/stops/custom/harm5_ae0.json",
+      "sha256": "41a7ce978dec77aaa7a64b72213bd5c478471f68f34bf2614b04cab106ae7afd",
+      "embedded_copyright": "AB",
+      "source_contributor": "Arthur Benilov",
+      "source_commit": "def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "source_date": "2021-08-17T21:03:50+01:00",
+      "source_url": "https://github.com/Archie3d/aeolus_plugin/commit/def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "license": "GPL-3.0 (plugin additions); preserve GPL-2.0-or-later for inherited Aeolus material",
+      "license_evidence": "https://github.com/Archie3d/aeolus_plugin/blob/7a006aee4d910f63f31f066544e77163229dfb0a/LICENSE.txt",
+      "modifications": "Upstream JSON-model contribution; preserve AB/ab credit and original history"
+    },
+    {
+      "path": "Resources/stops/custom/harm8_ae0.json",
+      "sha256": "d8ac8009d2cf07f8437ab76767e3dc21b74cf245d3d695e1813901971c4fe3b0",
+      "embedded_copyright": "AB",
+      "source_contributor": "Arthur Benilov",
+      "source_commit": "def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "source_date": "2021-08-17T21:03:50+01:00",
+      "source_url": "https://github.com/Archie3d/aeolus_plugin/commit/def41e8a2ced37c6a1102829d12aa7b601203cb3",
+      "license": "GPL-3.0 (plugin additions); preserve GPL-2.0-or-later for inherited Aeolus material",
+      "license_evidence": "https://github.com/Archie3d/aeolus_plugin/blob/7a006aee4d910f63f31f066544e77163229dfb0a/LICENSE.txt",
+      "modifications": "Upstream JSON-model contribution; preserve AB/ab credit and original history"
+    },
+    {
+      "path": "Resources/stops/custom/vox_humana_ae0.json",
+      "sha256": "75a79d5ce9a1a61ee95e2ae3541894480c50cebf4d12c469c0bbab3e2089030d",
+      "embedded_copyright": "ab",
+      "source_contributor": "Arthur Benilov",
+      "source_commit": "90e79e34b990e39c465b271e187dbafc85987f5d",
+      "source_date": "2021-06-09T20:00:32+01:00",
+      "source_url": "https://github.com/Archie3d/aeolus_plugin/commit/90e79e34b990e39c465b271e187dbafc85987f5d",
+      "license": "GPL-3.0 (upstream plugin distribution)",
+      "license_evidence": "https://github.com/Archie3d/aeolus_plugin/blob/7a006aee4d910f63f31f066544e77163229dfb0a/LICENSE.txt",
+      "modifications": "Upstream JSON-model contribution; preserve AB/ab credit and original history"
+    }
+  ]
+}

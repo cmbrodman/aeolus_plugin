@@ -1,0 +1,41 @@
+Aeolus stops-0.3.0 upstream-model license evidence
+
+Source: https://sources.debian.org/src/stops/0.3.0-3/debian/copyright/
+Retrieved from the Debian stops_0.3.0-3.debian.tar.xz packaging archive.
+The following is the complete packaging copyright record, unmodified.
+Debian packaging authors are credited for their packaging, not as model authors.
+Original individual model notices are retained in the files and inventory.
+Complete GPLv2 text: GPL-2.0.txt; GPLv3 text: ../LICENSE.txt.
+
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Stops
+Source: https://kokkinizita.linuxaudio.org/linuxaudio/downloads/
+
+Files: *
+Copyright: 2005-2007 Fons Adriaensen <fons.adriaensen@skynet.be>
+License: GPL-2+
+
+Files: debian/*
+Copyright:
+ 2007 Free Ekanayaka <freee@debian.org>,
+ 2018 James Cowgill <jcowgill@debian.org>
+ 2019 Olivier Humbert <trebmuh@tuxfamily.org>
+License: GPL-2+
+
+License: GPL-2+
+ This package is free software; you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 2 of the License, or
+ (at your option) any later version.
+ .
+ This package is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+ .
+ You should have received a copy of the GNU General Public License
+ along with this package; if not, write to the Free Software
+ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301 USA
+ .
+ On Debian systems, the complete text of the GNU General
+ Public License can be found in `/usr/share/common-licenses/GPL-2'.

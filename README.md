@@ -1,9 +1,9 @@
 ![build](https://github.com/Archie3d/aeolus_plugin/actions/workflows/build.yml/badge.svg)
 
 # ![aeolus](Resources/icons/icon64.png) Aeolus
-> **Modified fork:** This repository is maintained as `cmbrodman/aeolus_plugin` and includes changes to Arthur Benilov's plugin adaptation of Fons Adriaensen's Aeolus. See [NOTICE.md](NOTICE.md) for original credits, licensing, warranty and dated modification notices; [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for dependency/font notices and unresolved asset attributions; and [the distribution checklist](docs/DISTRIBUTION_CHECKLIST.md) before publishing packages.
+> **Modified fork:** This repository is maintained as `cmbrodman/aeolus_plugin` and includes changes to Arthur Benilov's plugin adaptation of Fons Adriaensen's Aeolus. See [NOTICE.md](NOTICE.md) for original credits, licensing, warranty and dated modification notices; [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for dependency/font notices and recording/model license attribution; and [the distribution checklist](docs/DISTRIBUTION_CHECKLIST.md) before publishing packages.
 >
-> The inherited application code is GPLv3-or-later. The pinned JUCE 8.0.7 modules use AGPLv3/commercial terms; fonts and other third-party assets retain their own terms. The root GPL text does not license every dependency or recording. Notice documentation updated **2026-10-15**.
+> The inherited application code is GPLv3-or-later. The pinned JUCE 8.0.7 modules use AGPLv3/commercial terms; fonts and other third-party assets retain their own terms. The root GPL text does not license every dependency or recording. See [recording and stop-model credits](docs/ASSET_NOTICES.md) and [the per-file inventory](docs/asset-provenance.json). Notice documentation updated **2026-10-15**.
 
 Pipe organ emulator using additive synthesis as a **VST, AU, or CLAP plugin** (or a stand-alone executable).
 

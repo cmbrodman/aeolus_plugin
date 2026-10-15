@@ -21,6 +21,7 @@ Aeolus is free software: you may redistribute and modify its GPL-covered code un
 - **2026-08-23 through 2026-09-05:** This fork's Git history records standalone, organ editing, MIDI/UI and related changes relative to upstream. The history is the authoritative per-file change record; these changes are not attributed to the original Aeolus authors.
 - **2026-10-15:** Added `AEOLUS_FEATURES.md`, recording plans and open-source module research. Those plans do not describe completed DSP/UI changes.
 - **2026-10-15:** Added this notice, readable third-party/font license copies, a distribution checklist and README links. Corrected the roadmap's ASIO inventory: the checked-in directory is a download placeholder, not a vendored SDK. This notice update makes no changes to audio processing or original author headers.
+- **2026-10-15:** Resolved the ten impulse-response and 85 stop-model provenance entries; added designated recording credits, source/license evidence, measured conversion notices, a per-file hash inventory and complete CC BY 4.0/GPLv2 texts. Audio/model bytes and source headers are unchanged.
 
 Future modified releases must retain these notices and add accurate change descriptions and dates. Do not backdate changes or replace an original author's notice with a fork contributor's name.
 
@@ -30,13 +31,13 @@ The repository's GPL license is not a blanket license for all bundled material.
 
 - The pinned **JUCE 8.0.7** dependency is offered under AGPLv3 or a commercial license. This fork documents the open-source route; no commercial license is asserted. Combining GPLv3 application code with AGPLv3 code is permitted by GPLv3 section 13, with the section's requirements for the combination. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 - Fonts remain under SIL OFL 1.1. MTS-ESP client code and the optional CLAP extension retain their separate permissive notices.
-- Impulse responses and stop-model provenance must be verified independently. Outstanding asset-specific questions are recorded in the third-party notices; this notice does not invent a license grant for them.
+- The ten impulse responses retain CC BY 4.0 terms and their designated OpenAIR creator credits. The 85 stop-model files retain original GPL grants and embedded contributor fields. See [the complete asset notices](docs/ASSET_NOTICES.md) and [per-file provenance](docs/asset-provenance.json), including recording modifications and source/license evidence.
 - Libraries suggested only in the roadmap are not installed dependencies and receive no implied permission or attribution claim here.
 
 ## Source and redistribution
 
 Source for this fork: https://github.com/cmbrodman/aeolus_plugin
 
-When distributing binaries, provide the exact corresponding source, modifications and build scripts as required by the applicable licenses, including pinned submodule sources. A link to an evolving default branch alone is not a release-specific source delivery plan. Include `LICENSE.txt`, this notice, `THIRD_PARTY_NOTICES.md`, `LICENSES/`, and the applicable transitive dependency notices.
+When distributing binaries, provide the exact corresponding source, modifications and build scripts as required by the applicable licenses, including pinned submodule sources. A link to an evolving default branch alone is not a release-specific source delivery plan. Include `LICENSE.txt`, this notice, `THIRD_PARTY_NOTICES.md`, `LICENSES/`, `docs/ASSET_NOTICES.md`, `docs/asset-provenance.json`, and the applicable transitive dependency notices.
 
-See [the distribution checklist](docs/DISTRIBUTION_CHECKLIST.md) before publishing binary packages. The unresolved asset entries must be resolved before describing a release as fully cleared for redistribution. No endorsement by the original authors or third-party contributors is implied.
+See [the distribution checklist](docs/DISTRIBUTION_CHECKLIST.md) before publishing binary packages. The recording/stop-model entries are resolved for the audited baseline; other resource and release-delivery checks remain in the third-party notices and checklist. No endorsement by the original authors or third-party contributors is implied.

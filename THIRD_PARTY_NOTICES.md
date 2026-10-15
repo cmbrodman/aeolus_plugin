@@ -51,32 +51,25 @@ Both fonts remain under **SIL Open Font License 1.1**, separate from the applica
 
 The full notices in `LICENSES/` are extracted from the bundled fonts, with line endings normalized to LF. No font outlines, names or metadata were modified.
 
-## Impulse responses — attribution verification still required
+## Impulse responses — resolved 2026-10-15
 
-The inherited README credits the **Open Acoustic Impulse Response Library (OpenAIR), Audiolab, University of York**, https://www.openair.hosted.york.ac.uk/ (historical site: http://www.openairlib.net/).
+All ten bundled WAVs are identified against the University of York's original OpenAIR recordings. Their dataset-specific publisher attribution sections archived on 2021-10-26 explicitly offer **CC BY 4.0**. Earlier captures had different licenses; the evidence and selected later grant are documented rather than treating OpenAIR as uniformly licensed.
 
-This credit is retained and made explicit here, but it is not a substitute for each recording's designated creator, dataset URL, license version and modification notice. The following bundled files have no accompanying dataset-specific license/attribution text in this repository:
+See [the complete recording and stop-model notices](docs/ASSET_NOTICES.md) for all ten titles, designated creator/library credits, original recording URLs, archived publisher license evidence and measured modification notices. The [per-file inventory](docs/asset-provenance.json) includes bundled/source SHA-256 hashes, formats and waveform comparisons. Retain [CC BY 4.0](LICENSES/CC-BY-4.0.txt) and those credits/modification notices with the recordings, including when embedded in binaries. The recordings retain their separate CC terms; the root GPL does not replace them.
 
-- `Resources/irs/1st_baptist_nashville_balcony.wav`
-- `Resources/irs/elveden_hall_suffolk_england.wav`
-- `Resources/irs/lady_chapel_stalbans.wav`
-- `Resources/irs/r1_nuclear_reactor_hall.wav`
-- `Resources/irs/st_andrews_church.wav`
-- `Resources/irs/st_georges_far.wav`
-- `Resources/irs/st_laurentius_molenbeek.wav`
-- `Resources/irs/york_council_chamber.wav`
-- `Resources/irs/york_minster.wav`
-- `Resources/irs/york_uni_sportscentre.wav`
+## Stop definitions — resolved 2026-10-15
 
-**Unresolved:** Match each exact bundled recording to its primary dataset/archive, preserve the specified attribution and license, and record any resampling, trimming, channel conversion or other changes. Dataset names alone do not establish exact recording provenance. Do not assign a blanket CC license or copy another application's modification claims to these files.
+All **59 binary and 26 JSON models** have source/license evidence in [ASSET_NOTICES.md](docs/ASSET_NOTICES.md) and [the inventory](docs/asset-provenance.json):
 
-The primary OpenAIR site could not be verified during this audit: direct HTTPS retrieval reported an expired certificate, and document retrieval timed out. No certificate checks were bypassed. This notice does not claim the recordings are unlicensed; it records the evidence still needed before clearing their redistribution. Resolve these entries, obtain appropriate permission, or use cleared alternatives before publishing a binary containing them.
+- **49 binary models:** byte-identical to `stops-0.3.0`; GPL-2.0-or-later as recorded in the matching Debian source package's copyright record. Retain [the original grant and copyright record](LICENSES/Aeolus-stops-notice.txt), [GPLv2](LICENSES/GPL-2.0.txt), individual author/comment fields, and the root GPLv3 used through the later-version option.
+- **10 binary models:** exact Git blob matches to Simul Piscator's 2021-02-16 multi-rank cornet/mixture contribution, published in that contributor's GPLv3 Aeolus tree. Preserve embedded `jm` credit and underlying Aeolus notices.
+- **26 JSON models:** traced to Arthur Benilov's upstream plugin commits; nine retain original binary-model parameter arrays and author credits, and 17 retain AB/ab credits. JSON conversion and other additions are documented separately from inherited model rights.
 
-## Stop definitions and other resources
+Individual model credits include Fons Adriaensen, Matthias Nagorni, Nathan Hurst and the Reiner Janke sample-source comment. Do not discard fields or replace them with a package-level credit. Model files are editable synthesis parameters; keep them with corresponding source. This audit changed no asset bytes.
 
-The inherited README identifies `Resources/stops/*.ae0` as originating from Aeolus and notes JSON translations/additional models. JSON files retain their copyright fields, including `FA`, `mn`, `AB` and `ab`; their initials are not expanded here without evidence. Source readers preserve these fields.
+## Other resource checks
 
-**Unresolved:** Confirm the exact stop-package source/license and any separately contributed model terms, including converted models; preserve embedded author/copyright/comment fields. Root GPL application licensing alone is not evidence for every asset. The icon/image resources and headerless modelling scripts also need their provenance checked for any separately sourced material before a complete release inventory is asserted. No original resource or metadata was removed by this notice update.
+The icon/image resources and headerless modelling scripts still need their provenance checked for any separately sourced material before a complete release inventory is asserted. This is separate from the now-resolved recording/stop-model inventory. No original resource or metadata was removed by this notice update.
 
 ## ASIO and other optional SDKs
 
