@@ -188,7 +188,9 @@ inline void run(int firstCpu) {
                         mixed.fill(0);
                         for (auto& job : jobs)
                             for (int i = 0; i < 128; ++i) mixed[i] += job.output[i];
-                        checksum += mixed[0] + mixed[127];
+                        double sum = 0;
+                        for (const float value : mixed) sum += value;
+                        checksum += sum; // Consume every mixed sample, including under LTO.
                     }
                     const double us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - start).count();
                     if (sample >= 0) times.push_back(us);

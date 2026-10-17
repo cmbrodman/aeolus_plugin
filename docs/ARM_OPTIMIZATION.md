@@ -143,12 +143,11 @@ on another system.
 An explicit, Linux-only offline probe is available in test-enabled builds:
 
 ```sh
-./build/aeolus_tests --benchmark-multicore 0
+./build/aeolus_multicore_probe --benchmark-multicore 0
 # Use 4 instead of 0 to compare the efficiency cluster.
 ```
 
-Use the board's graphical session, or Xvfb on a headless Linux machine. The
-requested CPUs must be available in the process's permitted affinity mask.
+The probe runs without a graphical session. The requested CPUs must be available in the process's permitted affinity mask.
 Close audio applications before measuring. The probe pins only its participating
 threads, restores their previous masks on exit, and does not change governors,
 process priorities, system affinity, organ files or standalone settings.
@@ -198,14 +197,14 @@ trial medians, including serial summation and worker coordination:
 
 | Performance-core participants | Fixed slices, ms | Dynamic 16-source batches, ms |
 | --- | ---: | ---: |
-| 1 | 3.611 | — |
-| 2 | 1.941 | 1.950 |
-| 3 | 1.372 | 1.442 |
-| 4 | 1.102 | 1.113 |
+| 1 | 3.602 | — |
+| 2 | 1.931 | 1.939 |
+| 3 | 1.369 | 1.435 |
+| 4 | 1.104 | 1.107 |
 
-Four fixed slices gave 3.28× spatial-stage throughput relative to one core.
-Across the three four-participant trials, p99 was 1.322–1.341 ms and the worst
-observed batch was 1.561 ms. Every serial/parallel comparison was bit-identical.
+Four fixed slices gave 3.26× spatial-stage throughput relative to one core.
+Across the three four-participant trials, p99 was 1.327–1.340 ms and the worst
+observed batch was 1.489 ms. Every serial/parallel comparison was bit-identical.
 These measurements support starting with evenly balanced slices for this
 uniform spatial workload; they do not show how unequal full-voice workloads
 will balance. They are not complete callback timings, a production scheduler
@@ -218,8 +217,8 @@ rendering any could change allocation at the 512-voice limit. Parallel batches
 within each prepared division avoid that change while still allowing a heavily
 loaded single division to use all four cores.
 
-For comparison, four efficiency cores measured 2.496 ms with fixed slices
-(2.471 ms with dynamic batches); one efficiency core measured 7.753 ms. These
+For comparison, four efficiency cores measured 2.497 ms with fixed slices
+(2.472 ms with dynamic batches); one efficiency core measured 7.769 ms. These
 are medians of three trial medians under the existing governor and ordinary
 thread scheduling. No real-time priority or exclusive core isolation was enabled.
 All 88 original organ/settings files matched their pre-test SHA-256 hashes.
