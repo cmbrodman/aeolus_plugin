@@ -146,6 +146,9 @@ void profilerTests()
 }
 void spatialTests()
 {
+#if AEOLUS_HAS_NEON && defined(AEOLUS_SPATIAL_NEON)
+    std::cout << "Paired-ear NEON spatial candidate selected\n";
+#endif
     float peak = 0;
     for (float rate : {44100.0f, 48000.0f}) {
         for (float position : {-8.0f, -0.15f, 0.0f, 0.15f, 8.0f}) {
