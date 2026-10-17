@@ -81,7 +81,7 @@ jobs:
           -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
           -S "${{ env.dir_source }}" \
           -B "${{ env.dir_build }}"
-        cmake --build "${{ env.dir_build }}" --config "${{ env.type }}"
+        cmake --build "${{ env.dir_build }}" --config "${{ env.type }}" --parallel 2
 
     - name: Run regression tests (Linux)
       if: matrix.os == 'ubuntu-latest'

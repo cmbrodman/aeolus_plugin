@@ -240,6 +240,6 @@ if(AEOLUS_BUILD_TESTS)
     target_compile_definitions(aeolus_tests PRIVATE $<TARGET_PROPERTY:${TARGET},COMPILE_DEFINITIONS>)
     add_test(NAME audio_regressions COMMAND aeolus_tests)
     set_tests_properties(audio_regressions PROPERTIES
-        ENVIRONMENT "AEOLUS_TEST_DATA_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/test-data"
+        ENVIRONMENT "AEOLUS_TEST_DATA_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/test-data;UBSAN_OPTIONS=halt_on_error=1"
         TIMEOUT 180)
 endif()

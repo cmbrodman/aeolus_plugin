@@ -8,6 +8,12 @@
 #include <cstdlib>
 #include <new>
 
+namespace aeolus::no_simd {
+float mul_reduce(const float*, const float*, size_t);
+void complex_mul_conj(float*, const float*, const float*, size_t);
+void fft_step(float*, const float*, size_t);
+}
+
 namespace {
 thread_local bool countHeap = false;
 thread_local size_t heapOperations = 0;
@@ -60,6 +66,56 @@ void simdTests()
         check(std::abs(out[i+1] - (-a[i] * b[i+1] - a[i+1] * b[i])) < 2e-6f, "complex imaginary mismatch");
     }
     std::cout << "CPU SSE3: " << aeolus::CPUTraits::get().sse3 << '\n';
+}
+std::vector<float> renderConvolutionReference()
+{
+    aeolus::dsp::Convolver convolution;
+    juce::AudioBuffer<float> ir(2, 16384);
+    for (int i = 0; i < ir.getNumSamples(); ++i) {
+        ir.setSample(0, i, 0.004f * std::exp(-i / 3000.0f) * std::sin(i * 0.017f));
+        ir.setSample(1, i, 0.004f * std::exp(-i / 3300.0f) * std::cos(i * 0.019f));
+    }
+    convolution.setLength(20480);
+    convolution.prepareToPlay(44100, 64);
+    convolution.setIR(ir);
+    convolution.setDryWet(0.7f, 0.3f, true);
+    convolution.setNonRealtime(true);
+    std::vector<float> left(32768), right(32768);
+    for (int i = 0; i < 32768; ++i) {
+        left[i] = std::sin(i * 0.027f) * 0.1f + std::sin(i * 0.071f) * 0.05f;
+        right[i] = std::cos(i * 0.023f) * 0.1f;
+    }
+    for (int i = 0; i < 32768; i += 257) {
+        const int count = std::min(257, 32768 - i);
+        convolution.process(left.data() + i, right.data() + i,
+                            left.data() + i, right.data() + i, count);
+    }
+    left.insert(left.end(), right.begin(), right.end());
+    return left;
+}
+void scalarConvolutionTest()
+{
+    // Run before any engine/background convolution exists. Each renderer joins
+    // its idle worker before dispatch pointers change, so this is serialized.
+    const auto dispatched = renderConvolutionReference();
+    const auto dot = aeolus::simd::mul_reduce_unaligned;
+    const auto multiply = aeolus::simd::complex_mul_conj;
+    const auto fft = aeolus::simd::fft_step;
+    aeolus::simd::mul_reduce_unaligned = &aeolus::no_simd::mul_reduce;
+    aeolus::simd::complex_mul_conj = &aeolus::no_simd::complex_mul_conj;
+    aeolus::simd::fft_step = &aeolus::no_simd::fft_step;
+    const auto scalar = renderConvolutionReference();
+    aeolus::simd::mul_reduce_unaligned = dot;
+    aeolus::simd::complex_mul_conj = multiply;
+    aeolus::simd::fft_step = fft;
+    float peak = 0;
+    for (size_t i = 0; i < scalar.size(); ++i) {
+        const float difference = std::abs(scalar[i] - dispatched[i]);
+        check(std::isfinite(difference), "nonfinite convolution reference difference");
+        peak = std::max(peak, difference);
+    }
+    std::cout << "Scalar/dispatched convolution peak difference: " << peak << '\n';
+    check(peak < 1e-5f, "SIMD convolution differs from scalar reference");
 }
 void reverbTests()
 {
@@ -228,7 +284,7 @@ int main()
         fixture.createDirectory();
         fixture.getChildFile("organ_config.json").replaceWithData(BinaryData::default_organ_json, BinaryData::default_organ_jsonSize);
         fixture.getChildFile("organ_state.json").replaceWithText("{}");
-        queueTests(); simdTests(); reverbTests(); concurrentReverbTests(); midiTests(); lifetimeTests();
+        queueTests(); simdTests(); scalarConvolutionTest(); reverbTests(); concurrentReverbTests(); midiTests(); lifetimeTests();
         std::cout << "Audio/MIDI regressions passed\n";
     } catch (const std::exception& e) {
         countHeap = false;
