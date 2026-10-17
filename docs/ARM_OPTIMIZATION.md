@@ -79,3 +79,26 @@ Current production call sites use dot products, conjugated complex multiplicatio
 Initial VIM4 GCC 13.3 Release/IPO kernel measurements, warmed and pinned to CPU 0, showed dot-product median speedups of approximately 2.74x / 3.51x / 3.93x at 64 / 256 / 4,096 floats. Conjugated complex multiplication was approximately 0.99x / 0.97x / 0.98x and FFT butterflies 1.06x / 0.99x / 1.06x: these kernels do not show a uniform improvement over GCC's auto-vectorized scalar code. Alternate load/shuffle layouts were slower and discarded. No whole-engine speedup is established by these measurements.
 
 Native standalone kernel tests and UBSan passed. The board's ASan runtime could not initialize its shadow allocator, so that launch is not a passing ASan result; hosted ARM64 CI runs ASan/UBSan separately. Test builds and copied data are isolated from the regular VIM4 installation.
+
+## VIM4 live comparison — 2026-10-17
+
+Fresh native kernel/UBSan and audio/MIDI regressions passed before these tests. Two reference/NEON/reference sequences used native GCC 13.3 Release/IPO builds, the same copied organ/settings and direct FiiO USB ALSA output at 44,100 Hz / 512 frames (11.610 ms nominal buffer period). Each selected window contains 1,724 processor calls over approximately 20 seconds after five seconds settling. The reference executable is the same one used in the earlier delay comparison; NEON was linked against the same common baseline objects, changing the arithmetic dispatch/kernels. Test configurations and data remained separate from the regular installation.
+
+Reverb-off runs sustained 399 voices. Reverb-on runs sustained 282 voices; saved state confirmed the actual wet setting was 42% (requested approximately 40%) and IR index 2. All saved processor parameters and IR matched exactly across the three reverb-on runs.
+
+| Run | Voices | Reverb | Median ms | p99 ms | Worst ms | Processor budget exceeded | Native xrun increase |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| reference-1 | 399 | 0% | 10.349 | 11.126 | 11.472 | 0 | 0 |
+| neon-1 | 399 | 0% | 10.371 | 11.105 | 11.677 | 2 | 0 |
+| reference-2 | 399 | 0% | 10.345 | 11.176 | 12.201 | 6 | 0 |
+| reverb-reference-1 | 282 | 42% | 8.279 | 12.269 | 12.780 | 188 | 0 |
+| reverb-neon-1 | 282 | 42% | 7.925 | 10.940 | 11.386 | 0 | 0 |
+| reverb-reference-2 | 282 | 42% | 8.260 | 12.420 | 12.821 | 182 | 0 |
+
+At 399 voices with reverb off, the NEON median was about 0.2% slower than the fresh reference runs, with small p99 differences: no useful improvement is demonstrated. Fresh reference medians of 10.345–10.349 ms and p99 of 11.126–11.176 ms fall within the earlier reference ranges of 10.302–10.376 ms and 11.023–11.241 ms.
+
+With reverb enabled, NEON reduced median processor time by 4.1–4.3% and p99 by 10.8–11.9% relative to the two references. Processor-budget exceedances fell from 188 / 182 to zero in the selected windows. These are measured improvements for this workload, not a demonstrated increase in maximum sustainable polyphony. The reverb-off result is consistent with the current SIMD call sites being in convolution.
+
+The listener reported all six runs clean. All captures closed normally with zero telemetry drops, sequence gaps or native xrun increases. The main CPU cluster held 2.208 GHz throughout the measured windows; SoC temperatures were 49.3–54.3 C overall and 50.6–52.9 C for the reverb-on comparison. No governor, priority, affinity or thermal settings were changed for live tests. All 88 original organ/settings files were verified unchanged by hashes.
+
+Processor duration excludes surrounding device handling and ALSA writes. A processor call exceeding the nominal buffer period is not a confirmed device xrun; the two observations remain separate. These short sustained-note captures do not replace attack/release, longer-duration or maximum-load testing.
