@@ -1,8 +1,8 @@
 // Copyright (C) 2026 Aeolus fork contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
-#include "delay.h"
-#include "filter.h"
+#include "aeolus/dsp/delay.h"
+#include "aeolus/dsp/filter.h"
 #include "aeolus/simd_neon.h"
 
 namespace aeolus::dsp {
