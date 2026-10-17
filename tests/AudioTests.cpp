@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "PluginProcessor.h"
 #include "aeolus/simd.h"
+#include "aeolus/dsp/spatial.h"
 #include <iostream>
 #include <chrono>
 #include <stdexcept>
@@ -117,6 +118,97 @@ void scalarConvolutionTest()
     }
     std::cout << "Scalar/dispatched convolution peak difference: " << peak << '\n';
     check(peak < 1e-5f, "SIMD convolution differs from scalar reference");
+}
+void spatialTests()
+{
+    float peak = 0;
+    for (float rate : {44100.0f, 48000.0f}) {
+        for (float position : {-8.0f, -0.15f, 0.0f, 0.15f, 8.0f}) {
+            for (int alias = 0; alias < 4; ++alias) {
+                aeolus::dsp::SpatialSource reference, block;
+                for (auto* source : {&reference, &block}) {
+                    source->setSampleRate(rate);
+                    source->setSourcePosition(position, 5.0f);
+                    source->recalculate(); source->reset();
+                }
+                // Include impulse, deterministic noise and a long silent tail;
+                // alternate block and single-sample processing to check state.
+                uint32_t random = 123;
+                int sample = 0;
+                for (int frames : {0, 1, 17, 64, 257, 1024, 63, 8192}) {
+                    std::vector<float> input(frames), l(frames), r(frames), expectedL(frames), expectedR(frames);
+                    for (int i = 0; i < frames; ++i, ++sample) {
+                        random = random * 1664525u + 1013904223u;
+                        input[i] = sample == 0 ? 1.0f : sample < 1400 ? float(int(random >> 8) - 8388608) / 8388608.0f : 0;
+                        reference.tick(input[i], expectedL[i], expectedR[i]);
+                    }
+                    float* outL = alias == 1 ? input.data() : l.data();
+                    float* outR = alias == 2 ? input.data() : alias == 3 ? outL : r.data();
+                    heapOperations = 0; countHeap = true;
+                    block.process(input.data(), outL, outR, frames);
+                    countHeap = false;
+                    check(heapOperations == 0, "spatial block allocated/freed");
+                    for (int i = 0; i < frames; ++i) {
+                        for (float error : {outL[i] - (alias == 3 ? expectedR[i] : expectedL[i]), outR[i] - expectedR[i]}) {
+                            check(std::isfinite(error), "nonfinite spatial output");
+                            peak = std::max(peak, std::abs(error));
+                        }
+                    }
+                    float a, b, c, d;
+                    reference.tick(0.1f, a, b); block.tick(0.1f, c, d);
+                    peak = std::max({peak, std::abs(a-c), std::abs(b-d)});
+                }
+                reference.reset(); block.reset();
+                for (int i = 0; i < 2048; ++i) {
+                    float a, b, c, d, input = i == 0 ? 1.0f : 0.0f;
+                    reference.tick(input, a, b); block.process(&input, &c, &d, 1);
+                    peak = std::max({peak, std::abs(a-c), std::abs(b-d)});
+                }
+            }
+        }
+    }
+    std::cout << "Spatial block/reference peak difference: " << peak << '\n';
+    check(peak < 1e-6f, "spatial block changed output/history");
+}
+void spatialBenchmark()
+{
+    // Kernel microbenchmark, not a polyphony/xrun measurement. Warm both
+    // variants, alternate timing order, consume output and report median/p99.
+    juce::ScopedNoDenormals noDenormals;
+    constexpr int voices = 300, frames = 64, rounds = 160;
+    std::vector<aeolus::dsp::SpatialSource> reference(voices), block(voices);
+    std::array<float, frames> input, left, right;
+    for (int i = 0; i < frames; ++i) input[i] = std::sin(i * 0.17f) * 0.1f;
+    for (int v = 0; v < voices; ++v)
+        for (auto* source : {&reference[v], &block[v]}) {
+            source->setSourcePosition(-8.0f + v * 16.0f / voices, 5.0f);
+            source->recalculate(); source->reset();
+        }
+    volatile double checksum = 0;
+    std::vector<double> times[2];
+    for (int round = -20; round < rounds; ++round) {
+        for (int order = 0; order < 2; ++order) {
+            const int variant = (round + 20 + order) % 2;
+            const auto start = std::chrono::steady_clock::now();
+            auto& sources = variant == 0 ? reference : block;
+            for (auto& source : sources) {
+                if (variant == 0)
+                    for (int i = 0; i < frames; ++i) source.tick(input[i], left[i], right[i]);
+                else source.process(input.data(), left.data(), right.data(), frames);
+                checksum += left[frames-1] + right[frames-1];
+            }
+            const auto us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now()-start).count();
+            if (round >= 0) times[variant].push_back(us);
+        }
+    }
+    for (int i = 0; i < 2; ++i) {
+        std::sort(times[i].begin(), times[i].end());
+        std::cout << "Spatial " << (i == 0 ? "tick reference" : "block")
+                  << " 300 voices/64 frames: median_us=" << times[i][rounds/2]
+                  << " p99_us=" << times[i][rounds*99/100] << " worst_us=" << times[i].back() << '\n';
+    }
+    std::cout << "Spatial median speedup: " << times[0][rounds/2]/times[1][rounds/2]
+              << " checksum=" << checksum << '\n';
 }
 void reverbTests()
 {
@@ -291,11 +383,16 @@ void operator delete[](void* p) noexcept { ::operator delete(p); }
 void operator delete(void* p, std::size_t) noexcept { ::operator delete(p); }
 void operator delete[](void* p, std::size_t) noexcept { ::operator delete(p); }
 
-int main()
+int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
     int result = 0;
     try {
+        spatialTests();
+        if (argc == 2 && std::string(argv[1]) == "--benchmark-spatial") {
+            spatialBenchmark();
+            return 0;
+        }
         const auto fixture = aeolus::getTestDataDirectory();
         fixture.createDirectory();
         fixture.getChildFile("organ_config.json").replaceWithData(BinaryData::default_organ_json, BinaryData::default_organ_jsonSize);

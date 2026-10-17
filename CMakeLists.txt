@@ -27,6 +27,16 @@ endif()
 option(WITH_ASIO "Enable ASIO audio interface" OFF)
 option(WITH_MULTIBUS_OUTPUT "Enable multibus output" OFF)
 
+option(AEOLUS_ENABLE_IPO "Enable Release link-time optimization (no fast-math)" OFF)
+if(AEOLUS_ENABLE_IPO)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT aeolus_ipo_supported OUTPUT aeolus_ipo_error)
+    if(NOT aeolus_ipo_supported)
+        message(FATAL_ERROR "Link-time optimization unavailable: ${aeolus_ipo_error}")
+    endif()
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+endif()
+
 add_subdirectory(JUCE)
 
 set(plugin_formats

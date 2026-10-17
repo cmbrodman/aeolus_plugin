@@ -27,6 +27,8 @@ Aeolus is free software: you may redistribute and modify its GPL-covered code un
 
 - **2026-10-17:** Added separate native Linux ARM64 and x86-64 CI builds and regression runs, architecture-specific artifact names and Linux deployment guidance. Both Linux builds use an Ubuntu 22.04 baseline; target-board audio validation remains separate.
 
+- **2026-10-17:** Added optional Release link-time optimization (enabled in ARM64 CI), block-local spatial-filter processing with sample-reference regression coverage and a kernel benchmark. Added build provenance and a local USB-copy packager including exact committed application/submodule sources. Synthesis quality settings and asset bytes are unchanged.
+
 Future modified releases must retain these notices and add accurate change descriptions and dates. Do not backdate changes or replace an original author's notice with a fork contributor's name.
 
 ## Dependencies and assets have their own terms

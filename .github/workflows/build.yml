@@ -33,6 +33,7 @@ jobs:
             path: ./build/Aeolus_artefacts/Release
             asio: OFF
           - os: ubuntu-22.04-arm
+            ipo: ON
             name: linux-arm64
             generator: Unix Makefiles
             path: ./build/Aeolus_artefacts/Release
@@ -81,6 +82,7 @@ jobs:
           -G "${{ matrix.generator }}" \
           -DWITH_ASIO=${{ matrix.asio }} \
           -DAEOLUS_BUILD_TESTS=ON \
+          -DAEOLUS_ENABLE_IPO=${{ matrix.ipo || 'OFF' }} \
           -DCMAKE_BUILD_TYPE=Release \
           -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
           -S "${{ env.dir_source }}" \
@@ -90,6 +92,10 @@ jobs:
     - name: Run regression tests (Linux)
       if: runner.os == 'Linux'
       run: xvfb-run -a ctest --test-dir "${{ env.dir_build }}" -C Release --output-on-failure
+
+    - name: Measure spatial block processing (Linux)
+      if: runner.os == 'Linux'
+      run: xvfb-run -a "${{ env.dir_build }}/aeolus_tests" --benchmark-spatial
 
     - name: Run regression tests (macOS / Windows)
       if: runner.os != 'Linux'
@@ -117,6 +123,19 @@ jobs:
             shutil.copy2(Path("docs") / name, destination / "docs" / name)
         PYTHON
 
+    - name: Record build provenance
+      env:
+        AEOLUS_IPO: ${{ matrix.ipo || 'OFF' }}
+      run: |
+        python - <<'PYTHON'
+        import json, os, platform, subprocess
+        from pathlib import Path
+        info = {"commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+                "architecture": platform.machine(), "ipo": os.environ["AEOLUS_IPO"],
+                "configuration": "Release", "runner": "${{ matrix.os }}"}
+        (Path("${{ matrix.path }}") / "BuildInfo.json").write_text(json.dumps(info, indent=2) + "\n")
+        PYTHON
+
     - name: List errors
       run: cat "${{ env.dir_build }}/CMakeFiles/CMakeError.log" || true
 
@@ -129,6 +148,7 @@ jobs:
       with:
         name: aeolus-${{ matrix.name }}
         path: |
+          ${{ matrix.path }}/BuildInfo.json
           ${{ matrix.path }}/Notices
           ${{ matrix.path }}/Standalone
           ${{ matrix.path }}/AU
