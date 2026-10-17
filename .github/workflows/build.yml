@@ -93,6 +93,13 @@ jobs:
       if: runner.os == 'Linux'
       run: xvfb-run -a ctest --test-dir "${{ env.dir_build }}" -C Release --output-on-failure
 
+    - name: Sanitize ARM64 arithmetic kernels
+      if: matrix.os == 'ubuntu-22.04-arm'
+      run: |
+        c++ -std=c++17 -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -ffp-contract=off \
+          -I Source tests/NeonTests.cpp Source/aeolus/simd_neon.cpp -o /tmp/aeolus-neon-sanitize
+        ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 /tmp/aeolus-neon-sanitize
+
     - name: Measure spatial block processing (Linux)
       if: runner.os == 'Linux'
       run: xvfb-run -a "${{ env.dir_build }}/aeolus_tests" --benchmark-spatial

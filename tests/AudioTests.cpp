@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "PluginProcessor.h"
 #include "aeolus/simd.h"
+#include "aeolus/simd_neon.h"
 #include "aeolus/dsp/spatial.h"
 #include <iostream>
 #include <chrono>
@@ -53,6 +54,12 @@ void queueTests()
 }
 void simdTests()
 {
+#if AEOLUS_HAS_NEON
+    check(aeolus::simd::mul_reduce_unaligned == &aeolus::neon::mul_reduce
+          && aeolus::simd::complex_mul_conj == &aeolus::neon::complex_mul_conj
+          && aeolus::simd::fft_step == &aeolus::neon::fft_step, "ARM64 NEON dispatch not selected");
+    std::cout << "ARM64 NEON dispatch selected\n";
+#endif
     alignas(32) float a[64], b[64], out[64];
     for (int i = 0; i < 64; ++i) { a[i] = std::sin(float(i)); b[i] = std::cos(float(i)); out[i] = a[i]; }
     aeolus::simd::mul_const_add(out, b, 0.37f, 64);

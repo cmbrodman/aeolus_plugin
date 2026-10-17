@@ -53,9 +53,11 @@ const CPUTraits CPUID = CPUTraits::get();
  * @brief Vectorized computions.
  *
  * Implementation will be detected in runtime and appropriate function
- * pointer will be assigned. Implementation varies from no SIMD, to SSE,
- * and AVX, this all the pointers must be 32-bytes aligned and sizes
- * must be divisible by 8 (unless explicitly unaligned instruction is used).
+ * pointer will be assigned. ARM64 uses NEON; other targets retain scalar/SSE/AVX dispatch.
+ * For portable calls, pointers must be 32-byte aligned and sizes divisible
+ * by 8 unless explicitly unaligned. NEON additionally handles unaligned
+ * pointers and scalar tails; complex/FFT sizes must always be even.
+ * NEON supports exact in-place arithmetic; partial overlap is not supported.
  */
 struct simd
 {
