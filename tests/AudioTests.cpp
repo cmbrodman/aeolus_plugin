@@ -4,6 +4,7 @@
 #include "aeolus/simd.h"
 #include "aeolus/simd_neon.h"
 #include "aeolus/dsp/spatial.h"
+#include "MulticoreProbe.h"
 #include <iostream>
 #include <chrono>
 #include <stdexcept>
@@ -416,6 +417,12 @@ int main(int argc, char** argv)
     juce::ScopedJuceInitialiser_GUI gui;
     int result = 0;
     try {
+        if (argc == 3 && std::string(argv[1]) == "--benchmark-multicore") {
+            const std::string cpu(argv[2]);
+            if (cpu != "0" && cpu != "4") throw std::runtime_error("probe CPU base must be 0 or 4");
+            multicore_probe::run(std::stoi(cpu));
+            return 0;
+        }
         spatialTests();
         if (argc == 2 && std::string(argv[1]) == "--benchmark-spatial") {
             spatialBenchmark();
