@@ -1045,6 +1045,14 @@ void Engine::noteOff(int note, int midiChannel)
 
 void Engine::allNotesOff()
 {
+    // Panic also cancels notes queued before it. Otherwise a GUI note-on can
+    // be replayed immediately after the keyboard and divisions were cleared.
+    _noteQueueOverflow.store(false);
+    NoteEvent discarded;
+    const auto queued = _pendingNoteEvents.count();
+    for (size_t i = 0; i < queued; ++i)
+        _pendingNoteEvents.receive(discarded);
+
     for (auto* division : _divisions)
         division->allNotesOff();
 
@@ -1663,11 +1671,8 @@ void Engine::processPendingNoteEvents()
 {
     NoteEvent event;
     if (_noteQueueOverflow.exchange(false)) {
-        // Consume a bounded snapshot before panic. Discarding a partial stream
-        // is safer than replaying note-ons after their note-offs were lost.
-        const auto queued = _pendingNoteEvents.count();
-        for (size_t i = 0; i < queued; ++i)
-            _pendingNoteEvents.receive(event);
+        // Discarding a partial stream is safer than replaying note-ons after
+        // their note-offs were lost. Panic drains a bounded queue snapshot.
         allNotesOff();
         return;
     }

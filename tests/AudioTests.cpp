@@ -179,8 +179,10 @@ void midiTests()
         midi.clear();
         for (int block = 0; block < 220; ++block) processor.processBlock(audio, midi);
         check(engine.getVoiceCount() == 0, "short note left an unreclaimable voice");
+        engine.postNoteEvent(true, 60, 1);
         processor.panic();
         processor.processBlock(audio, midi);
+        check(engine.getVoiceCount() == 0, "panic replayed an already queued GUI note-on");
         juce::AudioBuffer<float> empty(aeolus::N_OUTPUT_CHANNELS, 0);
         processor.processBlock(empty, midi);
         check(std::isfinite(processor.getProcessLoad()), "zero-length block corrupted meter");
