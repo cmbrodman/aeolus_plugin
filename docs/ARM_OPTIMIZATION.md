@@ -68,7 +68,7 @@ The analyzer reports median/p99/worst processor time, consecutive processor-star
 
 ## ARM64 NEON arithmetic
 
-`AEOLUS_ENABLE_NEON=ON` (default) selects ARM64 Advanced SIMD kernels for all existing arithmetic dispatch entries: add, scaled add, add then scale, scale, aligned/unaligned dot products, complex multiplication, conjugated complex product and FFT butterflies. ARM64 kernels use baseline intrinsics from the [Arm ACLE reference](https://arm-software.github.io/acle/neon_intrinsics/). Other architectures retain their existing dispatch. `OFF` retains scalar ARM dispatch for controlled comparisons.
+`AEOLUS_ENABLE_NEON=ON` (default) selects GCC/Clang ARM64 Advanced SIMD kernels for all existing arithmetic dispatch entries: add, scaled add, add then scale, scale, aligned/unaligned dot products, complex multiplication, conjugated complex product and FFT butterflies. ARM64 kernels use baseline intrinsics from the [Arm ACLE reference](https://arm-software.github.io/acle/neon_intrinsics/). Other architectures retain their existing dispatch. `OFF` retains scalar ARM dispatch for controlled comparisons.
 
 The kernels retain float32 precision and use separate multiply/add operations, with floating-point contraction disabled for their translation unit. Dot products use four accumulators and a pairwise reduction, so addition order differs from scalar and small rounding differences are expected, as with existing SSE. Complex conjugation follows the existing engine convention `conj(a*b)`, not `a*conj(b)`. Complex and FFT counts are numbers of floats and must be even. Kernels handle zero counts, unaligned addresses and scalar tails without padding reads. Exact aliases are supported for mixing and complex products; partial overlap is outside the contract.
 

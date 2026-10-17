@@ -57,7 +57,7 @@ const CPUTraits CPUID = CPUTraits::get();
  * For portable calls, pointers must be 32-byte aligned and sizes divisible
  * by 8 unless explicitly unaligned. NEON additionally handles unaligned
  * pointers and scalar tails; complex/FFT sizes must always be even.
- * Exact in-place arithmetic is supported; partial overlap is not supported.
+ * NEON supports exact in-place arithmetic; partial overlap is not supported.
  */
 struct simd
 {

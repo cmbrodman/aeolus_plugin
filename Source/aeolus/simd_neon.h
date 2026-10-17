@@ -5,7 +5,7 @@
 
 // Advanced SIMD is part of the ARM64 application target. Other architectures
 // retain their existing dispatch; no optional ARMv8.2 instructions are used.
-#if (defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64)) && !defined(AEOLUS_DISABLE_NEON)
+#if (defined(__aarch64__) || defined(__arm64__)) && !defined(_MSC_VER) && !defined(AEOLUS_DISABLE_NEON)
 #define AEOLUS_HAS_NEON 1
 namespace aeolus::neon {
 void add(float*, const float*, size_t);
