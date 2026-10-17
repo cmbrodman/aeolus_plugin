@@ -135,7 +135,7 @@ python3 tools/package_linux.py --artifact /path/to/extracted/aeolus-linux-arm64 
 
 Copy the entire generated folder, including notices, source archive and checksums. On the VIM4, copy it to a writable Linux directory and launch `Start Aeolus.sh` from the desktop or a terminal. USB filesystems may lack executable permissions or be mounted `noexec`; after copying, use `chmod +x 'Start Aeolus.sh' Standalone/Aeolus` if needed. Packaging does not copy or overwrite your existing organ data.
 
-`AEOLUS_USE_BLOCK_DELAY` selects equivalent block-based voice delay processing (`OFF` keeps the reference for A/B measurements). `AEOLUS_PROFILE_BUILD=ON` builds `Aeolus-Profile` with separate standalone settings. Set `AEOLUS_TIMING_FILE` to a fresh absolute `.csv` path to record processor timings, voice counts and native xruns outside the audio callback. See [measurement instructions and limits](docs/ARM_OPTIMIZATION.md#voice-delay-experiment-and-processor-telemetry).
+`AEOLUS_PROFILE_BUILD=ON` builds `Aeolus-Profile` with separate standalone settings. Set `AEOLUS_TIMING_FILE` to a fresh absolute `.csv` path to record processor timings, voice counts and native xruns outside the audio callback. See [measurement instructions and limits](docs/ARM_OPTIMIZATION.md#processor-telemetry).
 
 ## Development and validation
 

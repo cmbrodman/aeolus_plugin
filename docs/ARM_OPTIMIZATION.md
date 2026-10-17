@@ -32,11 +32,23 @@ Compare an unchanged build and an IPO-only build first; measure each subsequent 
 
 The older VIM4 delay-index experiment is not imported: it reportedly gave little observable improvement and remains a local experiment on that machine. The GCC declaration correction is already in the repository. Convolution idle suspension, NEON kernels, multicore synthesis and algorithmic reverb remain separate work; none is implied by enabling IPO.
 
-## Voice-delay experiment and processor telemetry
+## VIM4 delay experiment: rejected
 
-`AEOLUS_USE_BLOCK_DELAY=ON` selects a voice-delay implementation that computes its read cursor once per block and advances read/write cursors together. It retains the original ring length, write-before-read semantics (including delay equal to ring length), gain operation, chiff and spatial processing. `OFF` retains the sample-by-sample reference for A/B builds. Tests compare samples bit-for-bit and verify ring history after changing delays, wrapping, resets, zero-length blocks and interleaved use of the original API. There is no power-of-two resizing or tail truncation.
+A block-based delay candidate preserved output/history bit-for-bit but did not improve full-engine performance on the VIM4. The candidate is removed; the original voice-delay implementation remains. Experimental source is retained in Git history at `4ece46c`.
 
-Run `aeolus_tests --benchmark-delay` to measure only this kernel, using alternating-order reference/candidate processing for 399 delay lines and 64-frame blocks. A kernel speedup is not an equivalent full-engine speedup.
+On 2026-10-17, native GCC 13.3 Release/IPO builds were tested in reference/candidate/reference order with the same copied organ/settings, reverb down, direct FiiO USB ALSA output, 399 sustained voices and 44,100 Hz / 512 frames (11.610 ms nominal budget). Each measured window contained 1,724 processor calls over approximately 20 seconds after five seconds of settling.
+
+| Run | Median ms | p99 ms | Worst ms | Processor budget exceeded | Native xrun increase |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Reference 1 | 10.376 | 11.241 | 11.924 | 4 | 0 |
+| Candidate | 10.570 | 11.394 | 12.919 | 5 | 0 |
+| Reference 2 | 10.302 | 11.023 | 11.759 | 3 | 0 |
+
+The candidate median was approximately 1.9–2.6% slower than the two reference runs, so it was rejected. This short comparison does not establish a universal regression or a new maximum voice count. The listener reported all three runs clean. All captures closed normally with zero telemetry drops or sequence gaps. Processor-budget exceedances are distinct from native xruns. The main CPU cluster held 2.208 GHz during measured load; no governor, priority or thermal settings were changed. Original organ and application settings were verified unchanged by hashes.
+
+The hosted ARM delay microbenchmark had suggested about 1.54x kernel throughput, but the native VIM4 kernel test was approximately unchanged. This illustrates why hosted kernel speedups must be checked in the full application on target hardware.
+
+## Processor telemetry
 
 For device testing, build with `AEOLUS_PROFILE_BUILD=ON`. This gives the standalone a separate `Aeolus-Profile` application/settings name. In a test-enabled build, also set `AEOLUS_TEST_DATA_DIRECTORY` to a **test-owned copy** of the organ directory and settings. This override does not redirect standalone audio-device settings, which are isolated by the separate application name. Do not run normal and profile applications against the same exclusive ALSA device simultaneously.
 

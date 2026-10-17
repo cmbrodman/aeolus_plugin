@@ -97,10 +97,6 @@ jobs:
       if: runner.os == 'Linux'
       run: xvfb-run -a "${{ env.dir_build }}/aeolus_tests" --benchmark-spatial
 
-    - name: Measure block voice delay (Linux)
-      if: runner.os == 'Linux'
-      run: xvfb-run -a "${{ env.dir_build }}/aeolus_tests" --benchmark-delay
-
     - name: Run regression tests (macOS / Windows)
       if: runner.os != 'Linux'
       run: ctest --test-dir "${{ env.dir_build }}" -C Release --output-on-failure

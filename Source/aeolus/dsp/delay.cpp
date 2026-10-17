@@ -69,25 +69,6 @@ float DelayLine::readNearest(int delay) const
     return _buffer[index];
 }
 
-void DelayLine::processNearest(float* samples, size_t count, int delay, float gain)
-{
-    if (count == 0) return;
-    const size_t length = _buffer.size();
-    jassert(length > 0 && delay >= 0 && size_t(delay) <= length);
-    size_t writeIndex = _writeIndex;
-    // Wrap just once per block; subsequent samples advance both cursors.
-    size_t readIndex = writeIndex + (size_t(delay) == length ? 0 : size_t(delay));
-    if (readIndex >= length) readIndex -= length;
-    auto* ring = _buffer.data();
-    for (size_t i = 0; i < count; ++i) {
-        writeIndex = writeIndex == 0 ? length - 1 : writeIndex - 1;
-        readIndex = readIndex == 0 ? length - 1 : readIndex - 1;
-        ring[writeIndex] = samples[i];
-        samples[i] = ring[readIndex] * gain;
-    }
-    _writeIndex = writeIndex;
-}
-
 } // namespace dsp
 
 AEOLUS_NAMESPACE_END

@@ -18,7 +18,6 @@ std::unique_ptr<CallbackProfiler> CallbackProfiler::create(const juce::String& p
 CallbackProfiler::CallbackProfiler(std::unique_ptr<juce::FileOutputStream> output)
     : _output(std::move(output))
 {
-    _output->writeText("# block_delay=" + juce::String(AEOLUS_BLOCK_DELAY) + "\n", false, false, nullptr);
     _output->writeText("sequence,start_ns,duration_ns,sample_rate,frames,voices,native_xruns\n",
                        false, false, nullptr);
     startTimer(200);
