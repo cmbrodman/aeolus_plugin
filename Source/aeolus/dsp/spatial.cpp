@@ -58,30 +58,9 @@ void SpatialSource::tick(float x, float& l, float& r)
 
 void SpatialSource::process(float* in, float* outL, float* outR, int numFrames)
 {
-    // Keep coefficients and recursive history local for the whole block. Keep
-    // the direct-form-I expression/order identical to BiquadFilter::tick;
-    // neither the delay geometry nor floating-point precision changes.
-    const auto leftSpec = _filterSpec[0];
-    const auto rightSpec = _filterSpec[1];
-    auto leftState = _filterState[0];
-    auto rightState = _filterState[1];
-    const auto filter = [](const BiquadFilter::Spec& spec,
-                           BiquadFilter::State& state, float x) {
-        const float y = spec.b[0] * x + spec.b[1] * state.x[0] + spec.b[2] * state.x[1]
-                        - spec.a[1] * state.y[0] - spec.a[2] * state.y[1];
-        state.x[1] = state.x[0];
-        state.x[0] = x;
-        state.y[1] = state.y[0];
-        state.y[0] = y;
-        return y;
-    };
     for (int i = 0; i < numFrames; ++i) {
-        _delayLine.write(in[i]);
-        outL[i] = filter(leftSpec, leftState, _delayLine.readNearest(_leftDelay) * _leftAttenuation);
-        outR[i] = filter(rightSpec, rightState, _delayLine.readNearest(_rightDelay) * _rightAttenuation);
+        tick(in[i], outL[i], outR[i]);
     }
-    _filterState[0] = leftState;
-    _filterState[1] = rightState;
 }
 
 static float distanceToCutOffFrequency(float d)
