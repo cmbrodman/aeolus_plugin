@@ -1,4 +1,4 @@
-name: Build Aeolus plugin
+name: Build Aeolus standalone
 
 defaults:
   run:
@@ -22,14 +22,18 @@ env:
 
 jobs:
   build:
-    name: All platforms
+    name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-2022]
         include:
-          - os: ubuntu-latest
-            name: linux
+          - os: ubuntu-22.04
+            name: linux-x86_64
+            generator: Unix Makefiles
+            path: ./build/Aeolus_artefacts/Release
+            asio: OFF
+          - os: ubuntu-22.04-arm
+            name: linux-arm64
             generator: Unix Makefiles
             path: ./build/Aeolus_artefacts/Release
             asio: OFF
@@ -46,7 +50,7 @@ jobs:
 
     steps:
     - name: Install Linux dependencies
-      if: matrix.os == 'ubuntu-latest'
+      if: runner.os == 'Linux'
       run: sudo apt-get update && sudo apt-get install ninja-build libx11-dev libfreetype-dev libfontconfig-dev libasound2-dev libxrandr-dev libxinerama-dev libxcursor-dev libgl1-mesa-dev xvfb
 
     - name: Install macOS dependencies
@@ -84,12 +88,19 @@ jobs:
         cmake --build "${{ env.dir_build }}" --config "${{ env.type }}" --parallel 2
 
     - name: Run regression tests (Linux)
-      if: matrix.os == 'ubuntu-latest'
+      if: runner.os == 'Linux'
       run: xvfb-run -a ctest --test-dir "${{ env.dir_build }}" -C Release --output-on-failure
 
     - name: Run regression tests (macOS / Windows)
-      if: matrix.os != 'ubuntu-latest'
+      if: runner.os != 'Linux'
       run: ctest --test-dir "${{ env.dir_build }}" -C Release --output-on-failure
+
+    - name: Inspect Linux executable
+      if: runner.os == 'Linux'
+      run: |
+        file "${{ matrix.path }}/Standalone/Aeolus"
+        ldd "${{ matrix.path }}/Standalone/Aeolus" | tee /tmp/aeolus-libraries.txt
+        if grep -q "not found" /tmp/aeolus-libraries.txt; then exit 1; fi
 
     - name: Collect license and asset notices
       run: |

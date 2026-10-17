@@ -100,6 +100,17 @@ cmake --build build --config Release --parallel 2
 
 The standalone executable is generated under `build/Aeolus_artefacts/Release/Standalone` (platform-specific executable or application bundle). `WITH_ASIO` and `WITH_MULTIBUS_OUTPUT` default to `OFF`. Enabling multibus changes the target/product name to `Aeolus-multibus` and its corresponding artifact directory.
 
+### Linux downloads and ARM64 boards
+
+CI builds and tests Linux natively on both x86-64 and ARM64 using Ubuntu 22.04 runners. Download `aeolus-linux-x86_64` for Intel/AMD PCs or `aeolus-linux-arm64` for a **64-bit Linux** ARM board such as the Khadas VIM4. Artifacts are available from successful runs of the [build workflow](https://github.com/cmbrodman/aeolus_plugin/actions/workflows/build.yml). Extract the archive, keep its `Notices` directory, and run:
+
+```sh
+chmod +x Standalone/Aeolus
+./Standalone/Aeolus
+```
+
+These are dynamically linked desktop Linux executables built against Ubuntu 22.04 libraries; they are not Android or 32-bit ARM builds. ARM64 CI tests do not establish VIM4 audio-device compatibility or performance. A graphical desktop/X11 environment and compatible system libraries are required. On the board, `uname -m` should report `aarch64`; use `ldd Standalone/Aeolus` to identify missing libraries. If the installed OS has older libraries, build from source on that board using the commands above rather than copying the x86-64 executable. ARM currently uses the scalar DSP implementation.
+
 The checked-in ASIO directory contains download instructions only. An ASIO-enabled Windows build requires the SDK separately; Windows CI currently downloads the legacy SDK. Read [the third-party notices](THIRD_PARTY_NOTICES.md) before distributing such a build.
 
 The [JUCE Unofficial CLAP Plugin Support](https://github.com/free-audio/clap-juce-extensions) submodule is retained, but current CMake does not integrate or produce a CLAP target.
