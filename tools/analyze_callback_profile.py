@@ -32,6 +32,9 @@ def summarize(path, voices=None, warmup=0):
     loads = [d/b*100 for d, b in zip(durations, budgets)]
     native = [int(r['native_xruns']) for r in valid if int(r['native_xruns']) >= 0]
     resets = sum(b<a for a,b in zip(native, native[1:]))
+    intervals = [(int(b['start_ns'])-int(a['start_ns']))/1e6
+                 for a,b in zip(valid,valid[1:])
+                 if int(b['sequence']) == int(a['sequence'])+1]
     observed_gaps = sum(max(0, int(b['sequence'])-int(a['sequence'])-1) for a,b in zip(rows, rows[1:]))
     return {
         'records': len(valid), 'voices': sorted({int(r['voices']) for r in valid}),
@@ -39,6 +42,9 @@ def summarize(path, voices=None, warmup=0):
         'block_sizes': sorted({int(r['frames']) for r in valid}),
         'processor_ms': {'p50':percentile(durations,50), 'p99':percentile(durations,99), 'worst':max(durations)},
         'processor_budget_percent': {'p50':percentile(loads,50), 'p99':percentile(loads,99), 'worst':max(loads)},
+        'processor_start_interval_ms': {'p50':percentile(intervals,50), 'p99':percentile(intervals,99),
+                                        'worst':max(intervals)} if intervals else None,
+        'selected_span_seconds':(int(valid[-1]['start_ns'])-int(valid[0]['start_ns']))/1e9,
         'processor_budget_exceeded':sum(d>b for d,b in zip(durations,budgets)),
         'native_xruns_delta_across_selected_span':sum(max(0,b-a) for a,b in zip(native,native[1:])) if native else None,
         'native_counter_resets':resets,
