@@ -102,3 +102,11 @@ With reverb enabled, NEON reduced median processor time by 4.1–4.3% and p99 by
 The listener reported all six runs clean. All captures closed normally with zero telemetry drops, sequence gaps or native xrun increases. The main CPU cluster held 2.208 GHz throughout the measured windows; SoC temperatures were 49.3–54.3 C overall and 50.6–52.9 C for the reverb-on comparison. No governor, priority, affinity or thermal settings were changed for live tests. All 88 original organ/settings files were verified unchanged by hashes.
 
 Processor duration excludes surrounding device handling and ALSA writes. A processor call exceeding the nominal buffer period is not a confirmed device xrun; the two observations remain separate. These short sustained-note captures do not replace attack/release, longer-duration or maximum-load testing.
+
+## Paired-ear spatial filtering
+
+`AEOLUS_ENABLE_SPATIAL_NEON=ON` selects a paired-ear spatial filter on supported GCC/Clang ARM64 targets when the global NEON option is enabled. `OFF` keeps the original sample-by-sample spatial processing; single-sample `tick` remains the scalar reference in both builds. Other platforms retain the scalar spatial path.
+
+The two vector lanes represent left/right ears, retaining independent coefficients, input/output histories, attenuation and delay reads. Delay lengths, wrapping, filter recurrence order and voice release lifetimes are unchanged. Coefficients/history are packed once per block and histories committed before return, so resets and transitions to scalar `tick` remain valid. Multiply/add contraction is disabled in the candidate translation unit; float32 precision is retained. No new allocations, locks or I/O occur in the audio path.
+
+The existing spatial tests compare impulse/noise/silent-tail output and history at asymmetric positions and varied rates/block sizes, including zero-length blocks, resets, in-place buffers, aliased outputs and mixed `process`/`tick` calls. They require finite output with peak sample error below 1e-6 and no C++ heap operations during processing. `aeolus_tests --benchmark-spatial` alternates scalar and block processing for an offline kernel comparison. Target-device processor timing and listening remain necessary to assess the full application; a kernel speedup is not a voice-count gain.

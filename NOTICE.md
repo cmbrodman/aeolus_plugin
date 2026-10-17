@@ -51,3 +51,5 @@ When distributing binaries, provide the exact corresponding source, modification
 See [the distribution checklist](docs/DISTRIBUTION_CHECKLIST.md) before publishing binary packages. The recording/stop-model entries are resolved for the audited baseline; other resource and release-delivery checks remain in the third-party notices and checklist. No endorsement by the original authors or third-party contributors is implied.
 
 - **2026-10-17:** Added ARM64 NEON arithmetic kernels and scalar-comparison tests for mixing, dot products, complex multiplication and FFT butterflies. Existing x86 dispatch and organ assets are unchanged.
+
+- **2026-10-17:** Added paired-ear ARM64 NEON spatial filtering with a scalar-reference build switch. Existing coefficients, per-ear histories, delay lines, attenuation, precision and tail handling are retained.

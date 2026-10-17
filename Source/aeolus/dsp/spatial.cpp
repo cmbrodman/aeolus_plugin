@@ -18,6 +18,7 @@
 // ----------------------------------------------------------------------------
 
 #include "spatial.h"
+#include "spatial_neon.h"
 
 AEOLUS_NAMESPACE_BEGIN
 
@@ -58,9 +59,14 @@ void SpatialSource::tick(float x, float& l, float& r)
 
 void SpatialSource::process(float* in, float* outL, float* outR, int numFrames)
 {
+#if AEOLUS_HAS_NEON && defined(AEOLUS_SPATIAL_NEON)
+    processSpatialNeon(_delayLine, _filterSpec, _filterState, _leftDelay, _rightDelay,
+                       _leftAttenuation, _rightAttenuation, in, outL, outR, numFrames);
+#else
     for (int i = 0; i < numFrames; ++i) {
         tick(in[i], outL[i], outR[i]);
     }
+#endif
 }
 
 static float distanceToCutOffFrequency(float d)

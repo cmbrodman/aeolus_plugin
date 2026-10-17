@@ -26,6 +26,7 @@ endif()
 
 option(WITH_ASIO "Enable ASIO audio interface" OFF)
 option(WITH_MULTIBUS_OUTPUT "Enable multibus output" OFF)
+option(AEOLUS_ENABLE_SPATIAL_NEON "Enable paired-ear ARM64 NEON spatial filters" ON)
 option(AEOLUS_ENABLE_NEON "Enable ARM64 NEON arithmetic dispatch" ON)
 option(AEOLUS_PROFILE_BUILD "Use a separate standalone name/settings for profiling" OFF)
 
@@ -215,12 +216,15 @@ juce_add_binary_data(${TARGET}_res SOURCES ${res})
 target_link_libraries(${TARGET} PUBLIC ${TARGET}_res)
 
 target_sources(${TARGET} PRIVATE ${src})
+if(AEOLUS_ENABLE_SPATIAL_NEON)
+    target_compile_definitions(${TARGET} PUBLIC AEOLUS_SPATIAL_NEON=1)
+endif()
 if(NOT AEOLUS_ENABLE_NEON)
     target_compile_definitions(${TARGET} PUBLIC AEOLUS_DISABLE_NEON=1)
 endif()
 # Keep separate multiply/add rounding; never contract these kernels to FMA.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    set_source_files_properties(Source/aeolus/simd_neon.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
+    set_source_files_properties(Source/aeolus/simd_neon.cpp Source/aeolus/dsp/spatial_neon.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 endif()
 
 target_compile_definitions(${TARGET}
