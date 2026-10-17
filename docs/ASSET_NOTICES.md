@@ -142,7 +142,7 @@ All 26 source commits, dates, file hashes and retained credits are listed indivi
 
 ## Redistribution and verification
 
-- Ship this document, the inventory, `NOTICE.md`, `THIRD_PARTY_NOTICES.md`, root GPLv3 and applicable `LICENSES/` texts with source and binaries in an accessible notices location. Root documentation is not automatically bundled by the existing CI artifact upload.
+- Ship this document, the inventory, `NOTICE.md`, `THIRD_PARTY_NOTICES.md`, root GPLv3 and applicable `LICENSES/` texts with source and binaries in an accessible notices location. As of 2026-10-17, CI copies these root/asset notice materials into a Notices directory alongside application artifacts; verify the final archive and target-specific dependency notices separately.
 - Keep `.ae0` and JSON parameter sources, embedded notices and modification history with exact corresponding source. Do not distribute only generated wavetables as a substitute for editable models.
 - Preserve the separate CC BY 4.0 recording terms and the original GPL stop grants. No endorsement by OpenAIR, the University or the contributors is implied.
 - Before each release, compare bundled asset hashes against the inventory. Changed/replaced recordings or models require new provenance and modification entries.

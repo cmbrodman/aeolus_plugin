@@ -18,6 +18,7 @@
 // ----------------------------------------------------------------------------
 
 #include "aeolus/globals.h"
+#include <stdexcept>
 #include "aeolus/addsynth.h"
 
 namespace
@@ -30,6 +31,10 @@ namespace
 
     juce::File getDocumentsAeolusDirectory()
     {
+#if AEOLUS_TESTING
+        if (juce::SystemStats::getEnvironmentVariable("AEOLUS_TEST_DATA_DIRECTORY", {}).isNotEmpty())
+            return aeolus::getTestDataDirectory();
+#endif
         return juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
             .getChildFile("Aeolus");
     }
@@ -42,6 +47,15 @@ namespace
 }
 
 AEOLUS_NAMESPACE_BEGIN
+#if AEOLUS_TESTING
+juce::File getTestDataDirectory()
+{
+    const auto path = juce::SystemStats::getEnvironmentVariable("AEOLUS_TEST_DATA_DIRECTORY", {});
+    if (!juce::File::isAbsolutePath(path))
+        throw std::runtime_error("Tests require an absolute AEOLUS_TEST_DATA_DIRECTORY");
+    return juce::File(path);
+}
+#endif
 
 juce::File getOrganDataDirectory()
 {

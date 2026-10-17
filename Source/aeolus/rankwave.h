@@ -152,7 +152,7 @@ public:
 
     Pipewave::State trigger(int note);
 
-    void Rankwave::recreateFromModel(const Scale& scale, float tuningFreq)
+    void recreateFromModel(const Scale& scale, float tuningFreq)
 {
     _noteMin = _model.getNoteMin();
     _noteMax = _model.getNoteMax();

@@ -32,6 +32,10 @@
 
 AEOLUS_NAMESPACE_BEGIN
 
+#if AEOLUS_TESTING
+juce::File getTestDataDirectory();
+#endif
+
 #if AEOLUS_MULTIBUS_OUTPUT
     constexpr static int N_OUTPUT_CHANNELS = 8;
     constexpr static int N_VOICE_CHANNELS = 1;

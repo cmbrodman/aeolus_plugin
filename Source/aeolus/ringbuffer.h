@@ -79,7 +79,9 @@ public:
 
     size_t count() const noexcept
     {
-        return (writeIdx - readIdx) % Size;
+        const auto read = readIdx.load();
+        const auto write = writeIdx.load();
+        return write >= read ? write - read : Size - read + write;
     }
 
 private:

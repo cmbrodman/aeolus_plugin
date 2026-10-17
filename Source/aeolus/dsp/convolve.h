@@ -384,10 +384,12 @@ public:
     {
         inputIndex = 0;
 
-        ::memset(inputSpectrumBuffer, 0, sizeof(float) * inputSpectrumBufferSize);
+        if (inputSpectrumBufferSize != 0)
+            ::memset(inputSpectrumBuffer, 0, sizeof(float) * inputSpectrumBufferSize);
         inputSpectrumIndex = 0;
 
-        ::memset(irSpectrumBuffer, 0, sizeof(float) * irSpectrumBufferSize);
+        if (irSpectrumBufferSize != 0)
+            ::memset(irSpectrumBuffer, 0, sizeof(float) * irSpectrumBufferSize);
         irInputIndex = 0;
 
         irInputBlockIndex = 0;

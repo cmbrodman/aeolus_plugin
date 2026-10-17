@@ -115,9 +115,12 @@ CI builds on Linux, macOS and Windows but does not establish audio reliability o
 hardware support. Do not initialize dependencies or launch a build solely for a
 documentation edit.
 
-There is no dedicated C++ engine regression suite wired into current CMake.
-`Model/test.py` is not a substitute for audio/MIDI validation. Use checks appropriate
-to each change:
+`AEOLUS_BUILD_TESTS=ON` adds the `aeolus_tests` executable and the CTest
+`audio_regressions` test, using a build-directory profile. Run CTest under
+`xvfb-run -a` on headless Linux. Keep `AEOLUS_TEST_DATA_DIRECTORY` pointed only at
+test-owned files; the override exists only in test-enabled builds.
+`Model/test.py` is separate offline modelling work. Use checks appropriate to
+each change:
 
 - DSP/MIDI: deterministic renders with nonzero event offsets, repeated notes,
   releases, dense registrations, couplers, panic and queue overflow; compare

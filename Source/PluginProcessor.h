@@ -61,7 +61,6 @@ public:
 #endif
 
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
-    void processMidi (juce::MidiBuffer& midiMessages);
 
     //==============================================================================
     juce::AudioProcessorEditor* createEditor() override;
@@ -94,6 +93,9 @@ public:
     void handleNoteOff(juce::MidiKeyboardState* source, int midiChannel, int midiNoteNumber, float velocity) override;
 
 private:
+
+    void renderRange(juce::AudioBuffer<float>& buffer, int start, int count);
+    void processMidiMessage(const juce::MidiMessage& message);
 
     static BusesProperties getBusesProperties();
 

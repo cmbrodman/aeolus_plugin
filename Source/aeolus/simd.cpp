@@ -31,13 +31,20 @@
 #   define SIMD
 #   define SIMD_FMA 0   // Disable fma on Apple targets
 #   define SIMD_AVX 0
-#elif defined (_MSC_VER)
+#elif defined (_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
 #   include <pmmintrin.h>
 #   include <immintrin.h>
 #   include <intrin.h>
 #   define SIMD
 #   define SIMD_FMA 1
 #   define SIMD_AVX 1
+#elif (defined(__GNUC__) || defined(__clang__)) && (defined(__x86_64__) || defined(__i386__))
+#   include <x86intrin.h>
+#   include <cpuid.h>
+#   define SIMD
+#   define SIMD_FMA 0
+#   define SIMD_AVX 0
+#   define AEOLUS_TARGET_SSE3 1
 #endif
 
 AEOLUS_NAMESPACE_BEGIN
@@ -45,15 +52,18 @@ AEOLUS_NAMESPACE_BEGIN
 // perform cpuid function
 static void cpuid_func(uint32_t* regs, unsigned funcId)
 {
-#if defined _WIN32
-    __cpuid((int*) regs, (int) funcId);
+    for (int i = 0; i < 4; ++i) regs[i] = 0;
+#if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
+    __cpuidex((int*) regs, (int) funcId, 0);
+#elif defined(AEOLUS_TARGET_SSE3)
+    __get_cpuid_count(funcId, 0, &regs[0], &regs[1], &regs[2], &regs[3]);
 #elif defined(SIMD) && !defined(__arm64__)
     asm volatile
         ("cpuid" : "=a" (regs[0]), "=b" (regs[1]), "=c" (regs[2]), "=d" (regs[3])
             : "a" (funcId), "c" (0));
     // ECX is set to zero for CPUID function 4
 #else
-    *regs = 0;
+    for (int i = 0; i < 4; ++i) regs[i] = 0;
 #endif
 }
 
@@ -77,8 +87,8 @@ CPUTraits CPUTraits::get()
     cpu.fma      = (regs[ecx] & (1 << 12)) != 0;
     cpu.sse41    = (regs[ecx] & (1 << 19)) != 0;
     cpu.sse42    = (regs[ecx] & (1 << 20)) != 0;
-    cpu.sse      = (regs[ecx] & (1 << 25)) != 0;
-    cpu.sse2     = (regs[ecx] & (1 << 26)) != 0;
+    cpu.sse      = (regs[edx] & (1 << 25)) != 0;
+    cpu.sse2     = (regs[edx] & (1 << 26)) != 0;
     cpu.avx      = (regs[ecx] & (1 << 28)) != 0;
 
     cpuid_func (regs, 7);
@@ -88,6 +98,15 @@ CPUTraits CPUTraits::get()
     cpu.avx512er = (regs[ebx] & (1 << 27)) != 0;
     cpu.avx512cd = (regs[ebx] & (1 << 28)) != 0;
 
+#if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
+    // AVX/FMA need OS support for saving XMM/YMM state as well as CPUID bits.
+    cpuid_func(regs, 1);
+    const bool osxsave = (regs[ecx] & (1u << 27)) != 0;
+    const bool ymmEnabled = osxsave && ((_xgetbv(0) & 6) == 6);
+    cpu.avx = cpu.avx && ymmEnabled;
+    cpu.avx2 = cpu.avx2 && ymmEnabled;
+    cpu.fma = cpu.fma && cpu.avx;
+#endif
     return cpu;
 };
 
@@ -173,6 +192,14 @@ namespace no_simd {
 
 #ifdef SIMD
 
+#if defined(AEOLUS_TARGET_SSE3)
+# if defined(__clang__)
+#  pragma clang attribute push (__attribute__((target("sse3"))), apply_to=function)
+# else
+#  pragma GCC push_options
+#  pragma GCC target("sse3")
+# endif
+#endif
 namespace sse {
     void add (float* out, const float* in, size_t size)
     {
@@ -958,6 +985,13 @@ namespace avx {
 #endif // SIMD_AVX
 } // namespace avx
 
+#if defined(AEOLUS_TARGET_SSE3)
+# if defined(__clang__)
+#  pragma clang attribute pop
+# else
+#  pragma GCC pop_options
+# endif
+#endif
 #endif // SIMD
 
 //------------------------------------------------------------------------------
@@ -978,7 +1012,7 @@ static const bool simd_map = []() -> bool {
 
     const auto cpu = CPUTraits::get();
 
-    if (cpu.sse) {
+    if (cpu.sse3) {
         simd::add                  = &sse::add;
         simd::mul_const_add        = &sse::mul_const_add;
         simd::add_mul_const        = &sse::add_mul_const;

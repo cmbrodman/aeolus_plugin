@@ -47,12 +47,17 @@ LevelMeter& LevelMeter::operator = (const LevelMeter& other)
 
 void LevelMeter::process(const AudioBuffer<float>& buffer)
 {
+    process(buffer, 0, buffer.getNumSamples());
+}
+
+void LevelMeter::process(const AudioBuffer<float>& buffer, int start, int count)
+{
     float peak{0.0f};
     float rms{0.0f};
 
     for (int ch = 0; ch < buffer.getNumChannels(); ++ch) {
-        peak = jmax(peak, buffer.getMagnitude(ch, 0, buffer.getNumSamples()));
-        rms = jmax(rms, buffer.getRMSLevel(ch, 0, buffer.getNumSamples()));
+        peak = jmax(peak, buffer.getMagnitude(ch, start, count));
+        rms = jmax(rms, buffer.getRMSLevel(ch, start, count));
     }
 
     _peak = peak;

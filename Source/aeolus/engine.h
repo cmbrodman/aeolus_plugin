@@ -29,7 +29,8 @@
 #include "aeolus/sequencer.h"
 #include "aeolus/audioparam.h"
 #include "aeolus/levelmeter.h"
-#include "aeolus/dsp/convolver.h"
+#include "aeolus/dsp/reverbswitch.h"
+#include <mutex>
 #include "aeolus/dsp/interpolator.h"
 #include "aeolus/dsp/limiter.h"
 #include "mts/libMTSClient.h"
@@ -190,7 +191,7 @@ private:
  * This class defines the top-level organ engine that performs MIDI events processing
  * and audio generation.
  */
-class Engine
+class Engine : private juce::Timer
 {
 public:
 
@@ -201,11 +202,6 @@ public:
         bool on;
         int note;
         int midiChannel;
-    };
-
-    struct IRSwithEvent
-    {
-        int num;
     };
 
     struct Level
@@ -223,6 +219,7 @@ public:
     //--------------------------------------------------------------------------
 
     Engine();
+    ~Engine() override;
 
     bool isPedalDivision(const Division* d) const;
         Division* getPedalDivision();
@@ -256,7 +253,7 @@ public:
 
     /**
      * Set the reverb IR bu its number.
-     * @note This can be called upon initialisation or on the audio thread.
+     * @note Requests preparation off the audio thread.
      */
     void setReverbIR(int num);
 
@@ -328,7 +325,8 @@ public:
     void process(float* outL, float* outR, int numFrames, bool isNonRealtime = false);
 
     // Multibus version of the processing (does not include the convolver).
-    void process(juce::AudioBuffer<float>& out, bool isNonRealtime = false);
+    void process(juce::AudioBuffer<float>& out, bool isNonRealtime = false,
+                 int startSample = 0, int numSamples = -1);
 
     /**
      * Process incoming MIDI messages.
@@ -398,13 +396,13 @@ private:
     bool processSubFrame();
 
     void processPendingNoteEvents();
-    void processPendingIRSwitchEvents();
+    void prepareReverb();
 
     /// Generate tremulant osc waveform for a subframe.
     void generateTremulant();
 
     /// Apply the gloval volume.
-    void applyVolume(juce::AudioBuffer<float>& out);
+    void applyVolume(juce::AudioBuffer<float>& out, int start, int count);
     void applyVolume(float* outL, float* outR, int numFrames);
 
     /// Process control MIDI messages: program change (sequencer) and stop buttons CC.
@@ -419,6 +417,7 @@ private:
     float _sampleRate;
 
     RingBuffer<NoteEvent, 1024> _pendingNoteEvents;
+    std::atomic<bool> _noteQueueOverflow { false };
 
     VoicePool _voicePool;           ///< All the voices.
 
@@ -453,10 +452,10 @@ private:
     dsp::Limiter _limiter;
     std::atomic<bool> _limiterEnabled{};
 
-    dsp::Convolver _convolver;
+    dsp::ReverbSwitch _reverb;
+    std::mutex _reverbPreparationMutex;
+    int _preparedIR = -1;
     std::atomic<int> _selectedIR;
-    RingBuffer<IRSwithEvent, 1024> _irSwitchEvents;
-    int _reverbTailCounter;
 
     dsp::Interpolator _interpolator;
 
@@ -468,7 +467,9 @@ private:
     std::atomic<int> _midiSwellChannelsMask;
 
     std::atomic<bool> _restoringState { false };
-        std::atomic<bool> _saveDebouncePending { false };
+    std::atomic<bool> _saveRequested { false };
+    int _saveCountdown = 0;
+    void timerCallback() override;
 
         void injectKeepAlive(float* outL, float* outR, int numFrames);
 

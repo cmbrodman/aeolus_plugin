@@ -130,7 +130,7 @@ void AeolusAudioProcessor::releaseResources()
 bool AeolusAudioProcessor::canAddBus(bool isInput) const
 {
 #if AEOLUS_MULTIBUS_OUTPUT
-    return !isInput;
+    return !isInput && getBusCount(false) < aeolus::N_OUTPUT_CHANNELS;
 #else
     ignoreUnused(isInput);
     return false;
@@ -187,6 +187,9 @@ bool AeolusAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) co
 
 #if AEOLUS_MULTIBUS_OUTPUT
 
+    if (layouts.outputBuses.isEmpty() || layouts.outputBuses.size() > aeolus::N_OUTPUT_CHANNELS)
+        return false;
+
     for (int i = 0; i < layouts.outputBuses.size(); ++i) {
         auto channelSet = layouts.outputBuses.getUnchecked(i);
 
@@ -229,76 +232,65 @@ void AeolusAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear(i, 0, buffer.getNumSamples());
 
-    processMidi(midiMessages);
+    if (_panicRequest.exchange(false))
+        _engine.allNotesOff();
 
-#if AEOLUS_MULTIBUS_OUTPUT
-
-    _engine.setVolume(_parameters.volume->get());
-    _engine.process(buffer, isNonRealtime());
-
-#else
-
-    float* outL = buffer.getWritePointer(0);
-    float* outR = outL;
-
-    if (totalNumOutputChannels > 1)
-        outR = buffer.getWritePointer(1);
-
-    _engine.setReverbWet(_parameters.reverbWet->get());
-    _engine.setVolume(_parameters.volume->get());
-    _engine.enableLimiter(_parameters.limiterEnabled->get());
-    _engine.process(outL, outR, buffer.getNumSamples(), isNonRealtime());
-
-#endif // AEOLUS_MULTIBUS_OUTPUT
+    // Render up to each event, preserving the host's sample positions. The
+    // synthesizer retains its existing 64-sample internal processing quantum.
+    int position = 0;
+    for (const auto metadata : midiMessages) {
+        const int eventPosition = jlimit(position, buffer.getNumSamples(), metadata.samplePosition);
+        renderRange(buffer, position, eventPosition - position);
+        processMidiMessage(metadata.getMessage());
+        position = eventPosition;
+    }
+    renderRange(buffer, position, buffer.getNumSamples() - position);
 
     auto timestampStop = high_resolution_clock::now();
     auto duration_us = duration_cast<microseconds> (timestampStop - timestampStart).count();
 
     float realTime_us = 1e6f * (float) buffer.getNumSamples() / _engine.getSampleRate();
-    float load = duration_us / realTime_us;
+    float load = realTime_us > 0.0f ? duration_us / realTime_us : 0.0f;
 
     _processLoad = jmin(1.0f, 0.99f * _processLoad + 0.01f * load);
-
-    if (_panicRequest) {
-        _engine.allNotesOff();
-        _panicRequest = false;
-    }
 }
 
-void AeolusAudioProcessor::processMidi(juce::MidiBuffer& midiMessages)
+void AeolusAudioProcessor::renderRange(AudioBuffer<float>& buffer, int start, int count)
 {
-    if (midiMessages.getNumEvents() == 0)
+    if (count <= 0)
         return;
 
-    for (auto msgIter : midiMessages) {
-        const auto msg = msgIter.getMessage();
+    _engine.setVolume(_parameters.volume->get());
+#if AEOLUS_MULTIBUS_OUTPUT
+    _engine.process(buffer, isNonRealtime(), start, count);
+#else
+    _engine.setReverbWet(_parameters.reverbWet->get());
+    _engine.enableLimiter(_parameters.limiterEnabled->get());
+    _engine.process(buffer.getWritePointer(0, start), buffer.getWritePointer(1, start),
+                    count, isNonRealtime());
+#endif
+}
 
-        // Handle clobal CCs
-        const int ch = msg.getChannel();
-
-        const int mask{ _engine.getMIDIControlChannelsMask() };
-
-        if (aeolus::midi::matchChannelToMask(mask, ch) && msg.isController()) {
-            int cc = msg.getControllerNumber();
-            const float value = float(msg.getControllerValue()) / 127.0f;
-
-            switch (cc) {
-            case aeolus::CC_VOLUME:
-                (*_parameters.volume) = value;
-                break;
-            case aeolus::CC_REVERB:
-                (*_parameters.reverbWet) = value;
-                break;
-            case aeolus::CC_ALL_NOTES_OFF:
-                panic();
-                break;
-            default:
-                break;
-            }
+void AeolusAudioProcessor::processMidiMessage(const MidiMessage& msg)
+{
+    const int mask = _engine.getMIDIControlChannelsMask();
+    if (aeolus::midi::matchChannelToMask(mask, msg.getChannel()) && msg.isController()) {
+        const float value = float(msg.getControllerValue()) / 127.0f;
+        switch (msg.getControllerNumber()) {
+        case aeolus::CC_VOLUME:
+            (*_parameters.volume) = value;
+            break;
+        case aeolus::CC_REVERB:
+            (*_parameters.reverbWet) = value;
+            break;
+        case aeolus::CC_ALL_NOTES_OFF:
+            _engine.allNotesOff();
+            break;
+        default:
+            break;
         }
-
-        _engine.processMIDIMessage(msg);
     }
+    _engine.processMIDIMessage(msg);
 }
 
 //==============================================================================

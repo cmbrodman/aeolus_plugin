@@ -166,7 +166,13 @@ struct Convolver::Impl
 
     void setIR(const AudioBuffer<float>& buffer)
     {
-        ir = buffer;
+        // The zero-delay head always reads a complete BlockSize of IR data.
+        // Short test/custom responses must be zero-padded rather than exposing
+        // out-of-bounds pointers to the larger FFT stages.
+        ir.setSize(2, jmax(int(Convolver::BlockSize), buffer.getNumSamples()));
+        ir.clear();
+        for (int ch = 0; ch < 2; ++ch)
+            ir.copyFrom(ch, 0, buffer, jmin(ch, buffer.getNumChannels() - 1), 0, buffer.getNumSamples());
 
         // Reset the convolver to the initial state
         irSamplesRead = 0;

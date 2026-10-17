@@ -71,6 +71,10 @@ EngineGlobal::EngineGlobal()
 
     PropertiesFile::Options options{};
 
+#if AEOLUS_TESTING
+    if (SystemStats::getEnvironmentVariable("AEOLUS_TEST_DATA_DIRECTORY", {}).isNotEmpty())
+        options.folderName = getTestDataDirectory().getChildFile("Settings").getFullPathName();
+#endif
     options.applicationName = ProjectInfo::projectName;
     options.filenameSuffix = ".settings";
     //options.osxLibrarySubFolder = "~/Library/Application Support";
@@ -431,14 +435,7 @@ void EngineGlobal::pollStopFiles()
         return;
     _stopPollCounter = 0;
 
-    juce::Array<juce::File> dirs;
-
-    if (true)
-    {
-        dirs.add(File::getSpecialLocation(File::currentExecutableFile).getParentDirectory());
-        dirs.add(File::getSpecialLocation(File::userDocumentsDirectory).getChildFile("Aeolus"));
-        dirs.add(File::getSpecialLocation(File::userDocumentsDirectory).getChildFile("Aeolus").getChildFile("Stops"));
-    }
+    const auto dirs = getStopSearchDirectories();
 
     const juce::StringArray skip{
         "organ_config.json", "organ_state.json", "default_organ.json"
@@ -539,10 +536,8 @@ Engine::Engine()
     , _remainedSamples{0}
     , _tremulantBuffer{1, SUB_FRAME_LENGTH}
     , _tremulantPhase{0.0f}
-    , _convolver{}
+    , _reverb{}
     , _selectedIR{0}
-    , _irSwitchEvents{}
-    , _reverbTailCounter{0}
     , _interpolator{1.0f, N_OUTPUT_CHANNELS}
     , _midiKeyboardState{}
     , _volumeLevel{}
@@ -555,6 +550,15 @@ Engine::Engine()
     _sequencer = std::make_unique<Sequencer>(*this, SEQUENCER_N_STEPS);
 
     loadOrganState();
+    startTimer(50);
+}
+
+Engine::~Engine()
+{
+    // Hosts may destroy processors off the message thread. Wait for any timer
+    // callback already in flight, then unregister before destroying members.
+    const MessageManagerLock messageLock;
+    stopTimer();
 }
 
 void Engine::prepareToPlay(float sampleRate, int frameSize)
@@ -573,9 +577,10 @@ void Engine::prepareToPlay(float sampleRate, int frameSize)
     for (auto& state : _limiterState)
         dsp::Limiter::resetState(_limiterSpec, state);
 
-    // Select the first IR for reverb by default
-    setReverbIR(_selectedIR);
-    _convolver.setDryWet(1.0f, 0.25f, true);
+    // Playback is stopped during prepareToPlay. Serialize with the UI timer.
+    const std::lock_guard<std::mutex> preparationLock(_reverbPreparationMutex);
+    _reverb.reset();
+    _preparedIR = -1;
 
     _interpolator.setRatio(SAMPLE_RATE_F / sampleRate); // 44100 / sampleRate
     _interpolator.reset();
@@ -588,53 +593,45 @@ void Engine::prepareToPlay(float sampleRate, int frameSize)
         _outputFade = 0.0f;
         _startupFadeDone = false;   
 
-// Prime the convolver with silence so the first real note isn't a click
-    constexpr int primeSize = 512;
-    juce::HeapBlock<float> zeros(primeSize);
-    zeros.clear(primeSize);
+    prepareReverb();
+}
 
-    for (int i = 0; i < 16; ++i)
-        _convolver.process(zeros, zeros, zeros, zeros, primeSize);
-
-    _reverbTailCounter = _convolver.length();
+void Engine::prepareReverb()
+{
+#if !AEOLUS_MULTIBUS_OUTPUT
+    _reverb.collect();
+    const int selected = _selectedIR.load();
+    const auto& irs = EngineGlobal::getInstance()->getIRs();
+    if (selected != _preparedIR && isPositiveAndBelow(selected, int(irs.size()))) {
+        const auto& ir = irs[size_t(selected)];
+        _reverb.prepare(ir.waveform, ir.zeroDelay, _sampleRate);
+        _preparedIR = selected;
+    }
+#endif
 }
 
 void Engine::setReverbIR(int num)
 {
-    auto* g = EngineGlobal::getInstance();
-    const auto& irs = g->getIRs();
-
-    if (num >= 0 && num < irs.size()) {
-        const auto& ir = irs[num];
-        _convolver.setLength(int(ir.waveform.getNumSamples() / dsp::Convolver::BlockSize + 1) * dsp::Convolver::BlockSize);
-        _convolver.prepareToPlay(SAMPLE_RATE_F, SUB_FRAME_LENGTH); // these parameters are irrelevant
-        _convolver.setZeroDelay(ir.zeroDelay);
-        _convolver.setIR(ir.waveform);
-
-        _reverbTailCounter = _convolver.length();
-
-        _selectedIR = num;
-            requestSaveOrganState();
+    const auto& irs = EngineGlobal::getInstance()->getIRs();
+    if (isPositiveAndBelow(num, int(irs.size()))) {
+        _selectedIR.store(num);
+        requestSaveOrganState();
     }
 }
 
 void Engine::postReverbIR(int num)
 {
-    // Anticipate the IR change that will happen later.
-    // This is required for the UI to be updated correctly.
-    _selectedIR = num;
-
-    _irSwitchEvents.send({num});
+    setReverbIR(num);
 }
 
 float Engine::getReverbLengthInSeconds() const
 {
-    return float(_convolver.length()) * SAMPLE_RATE_R;
+    return _reverb.tailSeconds();
 }
 
 void Engine::setReverbWet(float v)
 {
-    _convolver.setDryWet(1.0f, v);
+    _reverb.setWet(v);
 }
 
 void Engine::setVolume(float v)
@@ -661,10 +658,7 @@ void Engine::process(float* outL, float* outR, int numFrames, bool isNonRealtime
     float* origOutR = outR;
     int origNumFrames = numFrames;
 
-    processPendingIRSwitchEvents();
     processPendingNoteEvents();
-
-    bool wasAudioGenerated = false;
 
     while (numFrames > 0)
     {
@@ -691,28 +685,17 @@ void Engine::process(float* outL, float* outR, int numFrames, bool isNonRealtime
 
         if (_remainedSamples == 0 && numFrames > 0)
         {
-            wasAudioGenerated |= processSubFrame();
+            processSubFrame();
             jassert(_remainedSamples > 0);
         }
     }
 
-    // When there is no audio generated we let the reverb tail to
-    // sound and stop the reverb processing to avoid convolving with silence.
-    if (wasAudioGenerated)
-        _reverbTailCounter = _convolver.length();
-    else
-        _reverbTailCounter = jmax(0, _reverbTailCounter - origNumFrames);
-
-    if (_convolver.isAudible()) {
-        _convolver.setNonRealtime(isNonRealtime);
-        _convolver.process(origOutL, origOutR, origOutL, origOutR, origNumFrames);
-    }
+    _reverb.process(origOutL, origOutR, origNumFrames, isNonRealtime);
 
     applyVolume(origOutL, origOutR, origNumFrames);
 
     // Always dither so WASAPI Low Latency never sees digital silence
     injectKeepAlive(origOutL, origOutR, origNumFrames);
-            constexpr float amp = 8.0e-5f;
 
     // Apply limiter
     if (_limiterEnabled) {
@@ -724,19 +707,16 @@ void Engine::process(float* outL, float* outR, int numFrames, bool isNonRealtime
     _volumeLevel.right.process(origOutR, origNumFrames);
 }
 
-void Engine::process(AudioBuffer<float>& out, bool isNonRealtime)
+void Engine::process(AudioBuffer<float>& out, bool isNonRealtime, int startSample, int numSamples)
 {
     ignoreUnused(isNonRealtime);
 
     const int numChannels = out.getNumChannels();
-    int numFrames = out.getNumSamples();
+    int numFrames = numSamples < 0 ? out.getNumSamples() - startSample : numSamples;
 
-    processPendingIRSwitchEvents();
     processPendingNoteEvents();
 
-    bool wasAudioGenerated = false;
-
-    int outIdx = 0;
+    int outIdx = startSample;
 
     while (numFrames > 0) {
         int idx = SUB_FRAME_LENGTH - _remainedSamples;
@@ -763,7 +743,7 @@ void Engine::process(AudioBuffer<float>& out, bool isNonRealtime)
 
         if (_remainedSamples == 0 && numFrames > 0)
         {
-            wasAudioGenerated |= processSubFrame();
+            processSubFrame();
             jassert(_remainedSamples > 0);
         }
 
@@ -772,9 +752,10 @@ void Engine::process(AudioBuffer<float>& out, bool isNonRealtime)
     // Multibus processing does not have a convolver FX
 
     // Global volume across all the buses
-    applyVolume(out);
+    const int rendered = outIdx - startSample;
+    applyVolume(out, startSample, rendered);
 
-    _volumeLevel.left.process(out);
+    _volumeLevel.left.process(out, startSample, rendered);
     _volumeLevel.right = _volumeLevel.left;
 }
 
@@ -1064,6 +1045,14 @@ void Engine::noteOff(int note, int midiChannel)
 
 void Engine::allNotesOff()
 {
+    // Panic also cancels notes queued before it. Otherwise a GUI note-on can
+    // be replayed immediately after the keyboard and divisions were cleared.
+    _noteQueueOverflow.store(false);
+    NoteEvent discarded;
+    const auto queued = _pendingNoteEvents.count();
+    for (size_t i = 0; i < queued; ++i)
+        _pendingNoteEvents.receive(discarded);
+
     for (auto* division : _divisions)
         division->allNotesOff();
 
@@ -1176,11 +1165,6 @@ void Engine::setPersistentState(const var& state)
         // Restore the IR
         int irNum = obj->getProperty("ir");
 
-        if (MessageManager::getInstance()->isThisTheMessageThread())
-            postReverbIR(irNum);
-        else
-            setReverbIR(irNum);
-
         postReverbIR(irNum);
 
         // Restore the sequencer
@@ -1241,25 +1225,22 @@ void Engine::saveOrganState() const
 
 void Engine::requestSaveOrganState()
 {
-    if (_restoringState.load())
-        return;
+    if (!_restoringState.load())
+        _saveRequested.store(true);
+}
 
-    juce::MessageManager::callAsync([this]()
+void Engine::timerCallback()
+{
+    // Audio/MIDI code only sets a flag. Timer lifetime is tied to the engine;
+    // no queued lambda can dereference an engine after destruction.
     {
-        if (_restoringState.load())
-            return;
-
-        if (_saveDebouncePending.exchange(true))
-            return;
-
-        juce::Timer::callAfterDelay(250, [this]()
-        {
-            _saveDebouncePending.store(false);
-
-            if (!_restoringState.load())
-                saveOrganState();
-        });
-    });
+        const std::lock_guard<std::mutex> preparationLock(_reverbPreparationMutex);
+        prepareReverb();
+    }
+    if (_saveRequested.exchange(false))
+        _saveCountdown = 5;
+    else if (_saveCountdown > 0 && --_saveCountdown == 0 && !_restoringState.load())
+        saveOrganState();
 }
 
 void Engine::populateDivisions()
@@ -1644,7 +1625,8 @@ void Engine::clearDivisionsTriggerFlag()
 
 void Engine::postNoteEvent(bool onOff, int note, int midiChannel)
 {
-    _pendingNoteEvents.send({onOff, note, midiChannel});
+    if (!_pendingNoteEvents.send({onOff, note, midiChannel}))
+        _noteQueueOverflow.store(true);
 }
 
 bool Engine::processSubFrame()
@@ -1657,7 +1639,6 @@ bool Engine::processSubFrame()
     _subFrameBuffer.clear();
 
     bool wasAudioGenerated = false;
-
     for (auto* division : _divisions) {
 
         _divisionFrameBuffer.clear();
@@ -1689,26 +1670,19 @@ bool Engine::processSubFrame()
 void Engine::processPendingNoteEvents()
 {
     NoteEvent event;
+    if (_noteQueueOverflow.exchange(false)) {
+        // Discarding a partial stream is safer than replaying note-ons after
+        // their note-offs were lost. Panic drains a bounded queue snapshot.
+        allNotesOff();
+        return;
+    }
 
-    while (_pendingNoteEvents.receive(event)) {
+    const auto queued = _pendingNoteEvents.count();
+    for (size_t i = 0; i < queued && _pendingNoteEvents.receive(event); ++i) {
         if (event.on)
             noteOn(event.note, event.midiChannel);
         else
             noteOff(event.note, event.midiChannel);
-    }
-}
-
-void Engine::processPendingIRSwitchEvents()
-{
-    IRSwithEvent event;
-    bool received = false;
-
-    while (_irSwitchEvents.receive(event)) {
-        received = true;
-    }
-
-    if (received) {
-        setReverbIR(event.num);
     }
 }
 
@@ -1727,10 +1701,10 @@ void Engine::generateTremulant()
     }
 }
 
-void Engine::applyVolume(AudioBuffer<float>& out)
+void Engine::applyVolume(AudioBuffer<float>& out, int start, int count)
 {
     if (_params[VOLUME].isSmoothing()) {
-        for (int i = 0; i < out.getNumSamples(); ++i) {
+        for (int i = start; i < start + count; ++i) {
             const float g = _params[VOLUME].nextValue() * VOLUME_GAIN;
 
             for (int ch = 0; ch < out.getNumChannels(); ++ch)
@@ -1738,7 +1712,7 @@ void Engine::applyVolume(AudioBuffer<float>& out)
         }
     } else {
         const float g = _params[VOLUME].target() * VOLUME_GAIN;
-        out.applyGain(g);
+        out.applyGain(start, count, g);
     }
 }
 
