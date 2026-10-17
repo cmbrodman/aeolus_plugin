@@ -49,3 +49,5 @@ Source for this fork: https://github.com/cmbrodman/aeolus_plugin
 When distributing binaries, provide the exact corresponding source, modifications and build scripts as required by the applicable licenses, including pinned submodule sources. A link to an evolving default branch alone is not a release-specific source delivery plan. Include `LICENSE.txt`, this notice, `THIRD_PARTY_NOTICES.md`, `LICENSES/`, `docs/ASSET_NOTICES.md`, `docs/asset-provenance.json`, and the applicable transitive dependency notices.
 
 See [the distribution checklist](docs/DISTRIBUTION_CHECKLIST.md) before publishing binary packages. The recording/stop-model entries are resolved for the audited baseline; other resource and release-delivery checks remain in the third-party notices and checklist. No endorsement by the original authors or third-party contributors is implied.
+
+- **2026-10-17:** Added ARM64 NEON arithmetic kernels and scalar-comparison tests for mixing, dot products, complex multiplication and FFT butterflies. Existing x86 dispatch and organ assets are unchanged.

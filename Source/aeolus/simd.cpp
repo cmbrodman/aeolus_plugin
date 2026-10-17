@@ -20,6 +20,7 @@
 
 #include <cassert>
 #include "aeolus/simd.h"
+#include "aeolus/simd_neon.h"
 
 #ifdef SIMD
 #   undef SIMD
@@ -1063,6 +1064,21 @@ static const bool simd_map = []() -> bool {
     return true;
 }();
 
+#endif
+
+#if AEOLUS_HAS_NEON
+static const bool neon_map = [] {
+    simd::add = &neon::add;
+    simd::mul_const_add = &neon::mul_const_add;
+    simd::add_mul_const = &neon::add_mul_const;
+    simd::mul_const = &neon::mul_const;
+    simd::mul_reduce = &neon::mul_reduce;
+    simd::mul_reduce_unaligned = &neon::mul_reduce;
+    simd::complex_mul = &neon::complex_mul;
+    simd::complex_mul_conj = &neon::complex_mul_conj;
+    simd::fft_step = &neon::fft_step;
+    return true;
+}();
 #endif
 
 AEOLUS_NAMESPACE_END

@@ -26,6 +26,7 @@ endif()
 
 option(WITH_ASIO "Enable ASIO audio interface" OFF)
 option(WITH_MULTIBUS_OUTPUT "Enable multibus output" OFF)
+option(AEOLUS_ENABLE_NEON "Enable ARM64 NEON arithmetic dispatch" ON)
 option(AEOLUS_PROFILE_BUILD "Use a separate standalone name/settings for profiling" OFF)
 
 option(AEOLUS_ENABLE_IPO "Enable Release link-time optimization (no fast-math)" OFF)
@@ -214,6 +215,13 @@ juce_add_binary_data(${TARGET}_res SOURCES ${res})
 target_link_libraries(${TARGET} PUBLIC ${TARGET}_res)
 
 target_sources(${TARGET} PRIVATE ${src})
+if(NOT AEOLUS_ENABLE_NEON)
+    target_compile_definitions(${TARGET} PUBLIC AEOLUS_DISABLE_NEON=1)
+endif()
+# Keep separate multiply/add rounding; never contract these kernels to FMA.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    set_source_files_properties(Source/aeolus/simd_neon.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
+endif()
 
 target_compile_definitions(${TARGET}
     PUBLIC
@@ -248,6 +256,16 @@ endif()
 option(AEOLUS_BUILD_TESTS "Build audio/MIDI regression tests" OFF)
 if(AEOLUS_BUILD_TESTS)
     enable_testing()
+    add_executable(aeolus_neon_tests tests/NeonTests.cpp Source/aeolus/simd_neon.cpp)
+    target_compile_features(aeolus_neon_tests PRIVATE cxx_std_17)
+    target_include_directories(aeolus_neon_tests PRIVATE Source)
+    if(NOT AEOLUS_ENABLE_NEON)
+        target_compile_definitions(aeolus_neon_tests PRIVATE AEOLUS_DISABLE_NEON=1)
+    endif()
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(aeolus_neon_tests PRIVATE -ffp-contract=off)
+    endif()
+    add_test(NAME neon_arithmetic COMMAND aeolus_neon_tests)
     target_compile_definitions(${TARGET} PRIVATE AEOLUS_TESTING=1 JUCE_MODAL_LOOPS_PERMITTED=1)
     add_executable(aeolus_tests tests/AudioTests.cpp)
     target_link_libraries(aeolus_tests PRIVATE ${TARGET})
