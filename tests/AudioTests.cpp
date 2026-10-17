@@ -3,6 +3,7 @@
 #include "PluginProcessor.h"
 #include "aeolus/simd.h"
 #include <iostream>
+#include <chrono>
 #include <stdexcept>
 #include <thread>
 #include <cstdlib>
@@ -257,9 +258,17 @@ void lifetimeTests()
         aeolus::Engine engine;
         engine.setWindowSize(901, 603);
         engine.requestSaveOrganState();
-        pump(400);
-        const auto state = juce::JSON::parse(aeolus::getOrganStateFile());
-        check(int(state.getProperty("window_width", 0)) == 901, "debounced state was not saved");
+        // Timer delivery is asynchronous, and the first UI tick may also
+        // prepare an IR. Observe the result with a deadline rather than assume
+        // a loaded native CI runner will deliver six ticks within 400 ms.
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        bool saved = false;
+        do {
+            pump(20);
+            const auto state = juce::JSON::parse(aeolus::getOrganStateFile());
+            saved = int(state.getProperty("window_width", 0)) == 901;
+        } while (!saved && std::chrono::steady_clock::now() < deadline);
+        check(saved, "debounced state was not saved within five seconds");
     }
     for (int i = 0; i < 12; ++i) {
         aeolus::Engine engine;
