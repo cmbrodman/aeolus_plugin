@@ -281,6 +281,8 @@ if(AEOLUS_BUILD_TESTS)
         target_link_libraries(aeolus_multicore_probe PRIVATE ${TARGET})
         target_include_directories(aeolus_multicore_probe PRIVATE $<TARGET_PROPERTY:${TARGET},INCLUDE_DIRECTORIES>)
         target_compile_definitions(aeolus_multicore_probe PRIVATE $<TARGET_PROPERTY:${TARGET},COMPILE_DEFINITIONS>)
+        add_test(NAME multicore_snapshot COMMAND aeolus_multicore_probe --check-snapshot)
+        set_tests_properties(multicore_snapshot PROPERTIES TIMEOUT 60)
     endif()
     add_test(NAME audio_regressions COMMAND aeolus_tests)
     set_tests_properties(audio_regressions PROPERTIES

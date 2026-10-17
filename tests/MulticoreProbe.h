@@ -28,6 +28,7 @@ struct alignas(64) Job {
 class Affinity {
 public:
     explicit Affinity(int cpu) {
+        if (cpu < 0) return; // Portable correctness checks leave affinity unchanged.
 #if defined(__linux__)
         valid = pthread_getaffinity_np(pthread_self(), sizeof(previous), &previous) == 0;
         cpu_set_t mask;
@@ -64,7 +65,7 @@ public:
             for (int lane = 1; lane < count; ++lane)
                 workers.emplace_back([this, lane, firstCpu] {
                     try {
-                        Affinity affinity(firstCpu + lane);
+                        Affinity affinity(firstCpu < 0 ? -1 : firstCpu + lane);
                         juce::ScopedNoDenormals noDenormals;
                         ready.fetch_add(1, std::memory_order_release);
                         unsigned seen = 0;

@@ -222,3 +222,56 @@ For comparison, four efficiency cores measured 2.497 ms with fixed slices
 are medians of three trial medians under the existing governor and ordinary
 thread scheduling. No real-time priority or exclusive core isolation was enabled.
 All 88 original organ/settings files matched their pre-test SHA-256 hashes.
+
+### Rejected whole-state snapshot prototype
+
+A second offline prototype gives workers private copies of spatial state. The
+caller never waits for completion: it adopts finished state/output or renders
+from its original state when a worker is late. Worker-owned snapshots remain
+untouched until the entire worker batch has finished, so late work cannot
+modify a voice's next quantum. Idle workers sleep on POSIX semaphores; the caller
+only posts notifications. Run it with:
+
+```sh
+./build/aeolus_multicore_probe --benchmark-snapshot 0
+./build/aeolus_multicore_probe --check-snapshot
+```
+
+The correctness command leaves affinity unchanged unless a CPU base is supplied.
+Linux CTest includes it as `multicore_snapshot`. It checks 33 and 450 sources,
+one through four participants, and silent tails while deliberately delaying one
+worker by 2 ms every seventh batch. Exact serial output was preserved with both
+late-job fallbacks and whole-batch reuse deferrals observed.
+
+The VIM4 measurements reject this implementation for live use:
+
+| Participants | Snapshot prototype median, ms |
+| --- | ---: |
+| 1, serial baseline in this harness | 3.084 |
+| 2 | 6.099 |
+| 3 | 6.997 |
+| 4 | 7.647 |
+
+These are medians of three trial medians at 450 sources/512 frames, including
+state copies, notifications, result adoption/fallback and complete serial
+summation. At four participants, 98.3% of worker-assigned sources were adopted,
+yet it was 2.48× slower than its own serial baseline. Completion rate alone is
+therefore insufficient evidence of a useful optimization. Use each harness's
+own serial baseline; their loop organization/compiler output differs.
+
+This is a fixed-geometry research tool: its copied delay buffers reuse existing
+capacity. It does not implement safe capacity changes for a live application.
+Copying entire delay-buffer state and transferring it between cores every
+64 samples is unsuitable here. A future nonwaiting design should prepare small,
+self-contained work packets and transfer only the state/data needed for that
+quantum, or investigate persistent voice ownership with an explicit deadline
+policy. Keep deterministic randomness, original summation order, division pool
+reuse, full tails and the serial fallback. Neither offline scheduler is connected
+to the application's audio callback; the working single-thread renderer and
+verified 450-voice result remain the current live baseline.
+
+The local snapshot correctness checks also passed AddressSanitizer/
+UndefinedBehaviorSanitizer and ThreadSanitizer with the probe plus spatial,
+delay and filter translation units instrumented. Other linked JUCE/shared-code
+objects were not instrumented; these checks do not establish whole-application
+thread safety.
