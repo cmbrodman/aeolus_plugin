@@ -26,6 +26,8 @@ endif()
 
 option(WITH_ASIO "Enable ASIO audio interface" OFF)
 option(WITH_MULTIBUS_OUTPUT "Enable multibus output" OFF)
+option(AEOLUS_USE_BLOCK_DELAY "Use exact block-based voice delay processing" ON)
+option(AEOLUS_PROFILE_BUILD "Use a separate standalone name/settings for profiling" OFF)
 
 option(AEOLUS_ENABLE_IPO "Enable Release link-time optimization (no fast-math)" OFF)
 if(AEOLUS_ENABLE_IPO)
@@ -53,6 +55,10 @@ else()
     set(PRODUCT_NAME "${PROJECT_NAME}")
     set(PLUGIN_DESCRIPTION "${PRODUCT_NAME} stereo")
     set(PLUGIN_CODE "E6he")
+endif()
+
+if(AEOLUS_PROFILE_BUILD)
+    set(PRODUCT_NAME "${PRODUCT_NAME}-Profile")
 endif()
 
 juce_add_plugin(${TARGET}
@@ -212,6 +218,7 @@ target_sources(${TARGET} PRIVATE ${src})
 
 target_compile_definitions(${TARGET}
     PUBLIC
+        AEOLUS_BLOCK_DELAY=$<BOOL:${AEOLUS_USE_BLOCK_DELAY}>
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
         JUCE_VST3_CAN_REPLACE_VST2=0

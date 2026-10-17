@@ -111,21 +111,18 @@ void Voice::process(float* outL, float* outR)
 
     if (_state.env == Pipewave::Over) {
         _postReleaseCounter -= std::min((int)_postReleaseCounter, SUB_FRAME_LENGTH);
-
-        for (int i = 0; i < SUB_FRAME_LENGTH; ++i) {
-            _delayLine.write(0.0f);
-            _buffer[i] = _delayLine.readNearest(_delay) * gain;
-        }
-
     } else {
         auto* pipe = _state.pipewave;
         pipe->play(_state, _buffer);
-
-        for (int i = 0; i < SUB_FRAME_LENGTH; ++i) {
-            _delayLine.write(_buffer[i]);
-            _buffer[i] = _delayLine.readNearest(_delay) * gain;
-        }
     }
+#if AEOLUS_BLOCK_DELAY
+    _delayLine.processNearest(_buffer, SUB_FRAME_LENGTH, _delay, gain);
+#else
+    for (int i = 0; i < SUB_FRAME_LENGTH; ++i) {
+        _delayLine.write(_buffer[i]);
+        _buffer[i] = _delayLine.readNearest(_delay) * gain;
+    }
+#endif
 
     _chiff.process(_buffer, SUB_FRAME_LENGTH);
 

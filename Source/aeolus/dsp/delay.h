@@ -40,6 +40,9 @@ public:
     void write(float x);
     float read(float delay) const;
     float readNearest(int delay) const;
+    // Equivalent to write/readNearest/gain for each sample, in-place.
+    // Requires a nonempty ring and 0 <= delay <= size(). No allocation.
+    void processNearest(float* samples, size_t count, int delay, float gain);
 
     size_t size() const { return _buffer.size(); }
 

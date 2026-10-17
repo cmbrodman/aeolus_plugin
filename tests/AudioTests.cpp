@@ -119,6 +119,100 @@ void scalarConvolutionTest()
     std::cout << "Scalar/dispatched convolution peak difference: " << peak << '\n';
     check(peak < 1e-5f, "SIMD convolution differs from scalar reference");
 }
+void delayBlockTests()
+{
+    for (int length : {1, 2, 7, 64, 127, 44100}) {
+        aeolus::dsp::DelayLine reference(length), block(length);
+        uint32_t random = 731;
+        for (int cycle = 0; cycle < 3; ++cycle) {
+            for (int delay : {0, 1, length/2, length-1, length}) {
+                if (delay > length) continue;
+                for (int count : {0, 1, 17, 64, 257, length+65}) {
+                    std::vector<float> expected(count), actual(count);
+                    const float gain = cycle == 0 ? 1.0f : cycle == 1 ? -0.37f : 0.0f;
+                    for (int j = 0; j < count; ++j) {
+                        random = random*1664525u + 1013904223u;
+                        actual[j] = float(int(random >> 8)-8388608)/8388608.0f;
+                        reference.write(actual[j]);
+                        expected[j] = reference.readNearest(delay)*gain;
+                    }
+                    heapOperations = 0; countHeap = true;
+                    block.processNearest(actual.data(), actual.size(), delay, gain);
+                    countHeap = false;
+                    check(heapOperations == 0, "block delay allocated/freed");
+                    check(count == 0 || std::memcmp(actual.data(), expected.data(), count*sizeof(float)) == 0,
+                          "block delay samples differ from original");
+                    check(block.readNearest(0) == reference.readNearest(0)
+                          && block.readNearest(length-1) == reference.readNearest(length-1)
+                          && block.read((length-1)*0.37f) == reference.read((length-1)*0.37f),
+                          "block delay history differs from original");
+                    // Interleave the old API to validate the committed cursor.
+                    block.write(0.125f); reference.write(0.125f);
+                }
+            }
+            block.reset(); reference.reset();
+        }
+    }
+    std::cout << "Block delay output/history: bit-identical to sample reference\n";
+}
+void delayBenchmark()
+{
+    juce::ScopedNoDenormals noDenormals;
+    constexpr int voices = 399, frames = 64, rounds = 300;
+    std::vector<aeolus::dsp::DelayLine> reference, block;
+    for (int v = 0; v < voices; ++v) {
+        reference.emplace_back(44100); block.emplace_back(44100);
+    }
+    std::array<float, frames> input, samples;
+    for (int i = 0; i < frames; ++i) input[i] = std::sin(i*0.17f)*0.1f;
+    volatile double checksum = 0;
+    std::vector<double> times[2];
+    for (int round = -30; round < rounds; ++round) {
+        for (int order = 0; order < 2; ++order) {
+            const int variant = (round+30+order)%2;
+            auto& lines = variant == 0 ? reference : block;
+            const auto start = std::chrono::steady_clock::now();
+            for (int v = 0; v < voices; ++v) {
+                samples = input;
+                const int delay = 10 + (v*37)%3000;
+                if (variant == 0)
+                    for (int i = 0; i < frames; ++i) {
+                        lines[v].write(samples[i]); samples[i] = lines[v].readNearest(delay)*0.71f;
+                    }
+                else lines[v].processNearest(samples.data(), frames, delay, 0.71f);
+                checksum += samples.back();
+            }
+            const double us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now()-start).count();
+            if (round >= 0) times[variant].push_back(us);
+        }
+    }
+    for (int v = 0; v < 2; ++v) {
+        std::sort(times[v].begin(), times[v].end());
+        std::cout << "Delay " << (v == 0 ? "sample reference" : "block")
+                  << " 399 voices/64 frames: median_us=" << times[v][rounds/2]
+                  << " p99_us=" << times[v][rounds*99/100] << " worst_us=" << times[v].back() << '\n';
+    }
+    std::cout << "Delay median speedup: " << times[0][rounds/2]/times[1][rounds/2]
+              << " checksum=" << checksum << '\n';
+}
+void profilerTests()
+{
+    const auto file = aeolus::getTestDataDirectory().getChildFile("callback-profile-test.csv");
+    file.deleteFile();
+    auto profiler = aeolus::CallbackProfiler::create(file.getFullPathName());
+    check(profiler != nullptr, "profiler could not open fresh test CSV");
+    check(aeolus::CallbackProfiler::create(file.getFullPathName()) == nullptr, "profiler overwrote existing file");
+    heapOperations = 0; countHeap = true;
+    for (int i = 0; i < 5000; ++i)
+        profiler->record(i*12000000LL, i == 0 ? 12000000 : 9000000, 44100, 512, 399, i/1000);
+    countHeap = false;
+    check(heapOperations == 0, "profiling allocated/freed on audio producer");
+    profiler.reset();
+    const auto text = file.loadFileAsString();
+    check(text.contains("sequence,start_ns,duration_ns") && text.contains("# dropped_total=905"),
+          "profiler did not report bounded queue overflow");
+    check(text.contains("0,0,12000000,44100.000,512,399,0"), "profiler sample data changed");
+}
 void spatialTests()
 {
     float peak = 0;
@@ -388,7 +482,11 @@ int main(int argc, char** argv)
     juce::ScopedJuceInitialiser_GUI gui;
     int result = 0;
     try {
-        spatialTests();
+        delayBlockTests(); spatialTests();
+        if (argc == 2 && std::string(argv[1]) == "--benchmark-delay") {
+            delayBenchmark();
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--benchmark-spatial") {
             spatialBenchmark();
             return 0;
@@ -397,7 +495,7 @@ int main(int argc, char** argv)
         fixture.createDirectory();
         fixture.getChildFile("organ_config.json").replaceWithData(BinaryData::default_organ_json, BinaryData::default_organ_jsonSize);
         fixture.getChildFile("organ_state.json").replaceWithText("{}");
-        queueTests(); simdTests(); scalarConvolutionTest(); reverbTests(); concurrentReverbTests(); midiTests(); lifetimeTests();
+        profilerTests(); queueTests(); simdTests(); scalarConvolutionTest(); reverbTests(); concurrentReverbTests(); midiTests(); lifetimeTests();
         std::cout << "Audio/MIDI regressions passed\n";
     } catch (const std::exception& e) {
         countHeap = false;
