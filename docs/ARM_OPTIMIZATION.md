@@ -110,3 +110,25 @@ Processor duration excludes surrounding device handling and ALSA writes. A proce
 The two vector lanes represent left/right ears, retaining independent coefficients, input/output histories, attenuation and delay reads. Delay lengths, wrapping, filter recurrence order and voice release lifetimes are unchanged. Coefficients/history are packed once per block and histories committed before return, so resets and transitions to scalar `tick` remain valid. Multiply/add contraction is disabled in the candidate translation unit; float32 precision is retained. No new allocations, locks or I/O occur in the audio path.
 
 The existing spatial tests compare impulse/noise/silent-tail output and history at asymmetric positions and varied rates/block sizes, including zero-length blocks, resets, in-place buffers, aliased outputs and mixed `process`/`tick` calls. They require finite output with peak sample error below 1e-6 and no C++ heap operations during processing. `aeolus_tests --benchmark-spatial` alternates scalar and block processing for an offline kernel comparison. Target-device processor timing and listening remain necessary to assess the full application; a kernel speedup is not a voice-count gain.
+
+## VIM4 sustained-voice capacity — 2026-10-17
+
+The highest verified clean load in these tests was **450 sustained voices** with paired-ear NEON, including a continuous two-minute capture. The previous spatial reference broke up at the same 450-voice chord, organ and saved settings. Relative to the earlier 399-voice clean reference, the demonstrated clean load increased by 51 voices (approximately 12.8%).
+
+Settings: direct FiiO USB ALSA, 44,100 Hz / 512 frames, reverb off, native GCC 13.3 Release/IPO builds with arithmetic NEON enabled in both variants. The configured 512-voice pool was unchanged. Higher-load search trials used adjusted registrations/chords; voice cost varies, so this is an observed workload limit, not a universal exact cutoff.
+
+| Build / trial | Voices | Observed span s | Median processor ms | p99 ms | Listening result |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Paired-ear NEON, first pass | 450 | 60.00 | 10.767 | 11.534 | Clean |
+| Paired-ear NEON, confirmation | 450 | 120.00 | 10.735 | 11.494 | Clean throughout |
+| Paired-ear NEON, search trial | 464 | 5.37 | 11.877 | 12.775 | Audible breakup |
+| Paired-ear NEON, search trial | 480 | 8.58 | 12.174 | 13.258 | Audible breakup |
+| Previous spatial reference | 450 | 4.78 | 12.134 | 12.856 | Audible breakup |
+
+Successful captures exclude five seconds settling and measure 60 / 120 seconds respectively. Failed trials were stopped on audible breakup; their short observed intervals include transients and are not equal-duration steady-state comparisons. No intermediate clean maximum between 450 and the failed 464-voice trial was established. A fresh candidate launch restored the original registration for the two-minute confirmation; its saved processor parameters, IR and division state matched the subsequent 450-voice reference exactly.
+
+At 450 voices, candidate p99 of 11.494 ms was close to the 11.610 ms nominal buffer period; 54 of 10,337 processor calls exceeded that period during the two-minute window, which still sounded clean throughout. At 464 / 480 voices, observed medians of 11.877 / 12.174 ms exceeded the period and the listener reported breakup. The previous spatial reference at 450 likewise exceeded the period (12.134 ms median) and sounded broken up.
+
+**The native xrun counter remained zero even during audible failures.** It is not an exhaustive dropout detector on this output path. The bundled JUCE ALSA backend configures silence insertion and increments its underrun counter on `-EPIPE` write errors; counter silence must not be treated as proof of clean output. Listening, processor duration and start intervals were kept as separate observations.
+
+Both successful 450-voice windows sampled the main CPU cluster at 2.208 GHz; SoC temperatures were 47.2–52.6 C across those windows. No governor, scheduling, affinity, thermal, precision, tail or voice-pool changes were made. All captures closed normally with zero telemetry drops or sequence gaps. All 88 original organ/settings files were hash-verified unchanged. Raw data, partial hardware streams and listening reports remain in the ignored local profiling directory.
