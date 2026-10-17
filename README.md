@@ -154,3 +154,5 @@ Linux x86 builds can dispatch to the existing SSE3 kernels while retaining scala
 ARM64 builds use NEON arithmetic kernels by default (`AEOLUS_ENABLE_NEON=OFF` retains scalar dispatch for comparisons). These accelerate existing convolution arithmetic without changing voice limits, precision or reverb settings. See [ARM kernel validation](docs/ARM_OPTIMIZATION.md#arm64-neon-arithmetic).
 
 `AEOLUS_ENABLE_SPATIAL_NEON` selects paired-ear NEON spatial filtering on supported ARM64 builds (`OFF` retains the scalar spatial reference). The global `AEOLUS_ENABLE_NEON=OFF` also disables this path. See [spatial filter comparison](docs/ARM_OPTIMIZATION.md#paired-ear-spatial-filtering).
+
+A Linux-only, offline multicore scaling probe is available in test-enabled builds. See [multicore experiment and limits](docs/ARM_OPTIMIZATION.md#multicore-scaling-experiment). Live voice rendering remains serial.

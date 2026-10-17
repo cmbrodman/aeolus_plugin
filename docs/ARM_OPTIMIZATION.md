@@ -132,3 +132,146 @@ At 450 voices, candidate p99 of 11.494 ms was close to the 11.610 ms nominal buf
 **The native xrun counter remained zero even during audible failures.** It is not an exhaustive dropout detector on this output path. The bundled JUCE ALSA backend configures silence insertion and increments its underrun counter on `-EPIPE` write errors; counter silence must not be treated as proof of clean output. Listening, processor duration and start intervals were kept as separate observations.
 
 Both successful 450-voice windows sampled the main CPU cluster at 2.208 GHz; SoC temperatures were 47.2–52.6 C across those windows. No governor, scheduling, affinity, thermal, precision, tail or voice-pool changes were made. All captures closed normally with zero telemetry drops or sequence gaps. All 88 original organ/settings files were hash-verified unchanged. Raw data, partial hardware streams and listening reports remain in the ignored local profiling directory.
+
+## Multicore scaling experiment
+
+The VIM4 reports performance CPUs 0–3 (capacity 1024, maximum 2.208 GHz)
+and efficiency CPUs 4–7 (capacity 577, maximum 2.016 GHz). These indices are
+specific to the tested board/kernel; discover topology before applying affinity
+on another system.
+
+An explicit, Linux-only offline probe is available in test-enabled builds:
+
+```sh
+./build/aeolus_multicore_probe --benchmark-multicore 0
+# Use 4 instead of 0 to compare the efficiency cluster.
+```
+
+The probe runs without a graphical session. The requested CPUs must be available in the process's permitted affinity mask.
+Close audio applications before measuring. The probe pins only its participating
+threads, restores their previous masks on exit, and does not change governors,
+process priorities, system affinity, organ files or standalone settings.
+
+The probe runs 450 independent existing spatial sources, eight 64-sample quanta
+per timed batch, and retains serial voice-order stereo summation. It compares
+one through four participants using fixed slices or dynamically claimed batches
+of 16 sources. Three trials reverse participant order on the middle trial.
+Before each measurement, 33- and 450-source comparisons require bit-identical
+serial/parallel output across excitation and silent spatial tails. Worker threads
+persist during measurement; setup and correctness checks are outside timing.
+
+This is **spatial-only, offline throughput research**. It does not parallelize
+the application's voices or establish a new clean voice limit. It excludes pipe
+playback, chiff, MIDI, resampling, division modulation, reverb and audio-device
+I/O. Workers busy-poll, and completion uses an unbounded atomic rendezvous:
+**do not put this experimental scheduler in an audio callback**. It gives useful
+scaling evidence while deliberately leaving the existing live renderer intact.
+
+For a live design, use the audio callback plus three persistent DSP workers on
+the four performance cores. Prepare shared control and randomness serially;
+render independent voice batches into preallocated private buffers; reduce in
+original voice order; reclaim voices only after rendering completes. Splitting
+by division alone can leave cores unused when a dense registration concentrates
+on one division. Keep a single-thread path for small loads and measure two,
+three and four participants rather than assuming four is always fastest.
+
+The current pipe-instability and chiff generators have shared random streams.
+Concurrent calls can change which voice receives each random value even if the
+random generator itself tolerates concurrency. Preserve draw order before
+parallelizing those stages. Worker completion, preemption and lifetime rules
+need a separate real-time design; dynamic claims redistribute unstarted work,
+but do not recover a job already held by a descheduled worker. Added quantum
+latency, dropped voices or omitted tails are not acceptable hidden fallbacks.
+
+A VIM4-specific application policy can place the UI and ordinary background
+threads on CPUs 4–7 while explicitly assigning audio participants to CPUs 0–3.
+Audio-critical convolution work needs its own scheduling decision. Per-thread
+pinning does not prevent unrelated processes or interrupts from using the
+performance cores; exclusive isolation would be a separate OS experiment.
+
+### VIM4 spatial-only results, 17 October 2026
+
+Native GCC 13.3 Release/LTO, both existing NEON paths enabled, 450 spatial
+sources and 512 frames per timed batch. Values below are the median of three
+trial medians, including serial summation and worker coordination:
+
+| Performance-core participants | Fixed slices, ms | Dynamic 16-source batches, ms |
+| --- | ---: | ---: |
+| 1 | 3.602 | — |
+| 2 | 1.931 | 1.939 |
+| 3 | 1.369 | 1.435 |
+| 4 | 1.104 | 1.107 |
+
+Four fixed slices gave 3.26× spatial-stage throughput relative to one core.
+Across the three four-participant trials, p99 was 1.327–1.340 ms and the worst
+observed batch was 1.489 ms. Every serial/parallel comparison was bit-identical.
+These measurements support starting with evenly balanced slices for this
+uniform spatial workload; they do not show how unequal full-voice workloads
+will balance. They are not complete callback timings, a production scheduler
+validation or an increased sustainable voice-count claim.
+
+Preserve division preparation/reclamation boundaries in an initial live
+prototype: the serial engine can return completed voices to its shared pool
+before the next division triggers new pipes. Preparing every division before
+rendering any could change allocation at the 512-voice limit. Parallel batches
+within each prepared division avoid that change while still allowing a heavily
+loaded single division to use all four cores.
+
+For comparison, four efficiency cores measured 2.497 ms with fixed slices
+(2.472 ms with dynamic batches); one efficiency core measured 7.769 ms. These
+are medians of three trial medians under the existing governor and ordinary
+thread scheduling. No real-time priority or exclusive core isolation was enabled.
+All 88 original organ/settings files matched their pre-test SHA-256 hashes.
+
+### Rejected whole-state snapshot prototype
+
+A second offline prototype gives workers private copies of spatial state. The
+caller never waits for completion: it adopts finished state/output or renders
+from its original state when a worker is late. Worker-owned snapshots remain
+untouched until the entire worker batch has finished, so late work cannot
+modify a voice's next quantum. Idle workers sleep on POSIX semaphores; the caller
+only posts notifications. Run it with:
+
+```sh
+./build/aeolus_multicore_probe --benchmark-snapshot 0
+./build/aeolus_multicore_probe --check-snapshot
+```
+
+The correctness command leaves affinity unchanged unless a CPU base is supplied.
+Linux CTest includes it as `multicore_snapshot`. It checks 33 and 450 sources,
+one through four participants, and silent tails while deliberately delaying one
+worker by 2 ms every seventh batch. Exact serial output was preserved with both
+late-job fallbacks and whole-batch reuse deferrals observed.
+
+The VIM4 measurements reject this implementation for live use:
+
+| Participants | Snapshot prototype median, ms |
+| --- | ---: |
+| 1, serial baseline in this harness | 3.084 |
+| 2 | 6.099 |
+| 3 | 6.997 |
+| 4 | 7.647 |
+
+These are medians of three trial medians at 450 sources/512 frames, including
+state copies, notifications, result adoption/fallback and complete serial
+summation. At four participants, 98.3% of worker-assigned sources were adopted,
+yet it was 2.48× slower than its own serial baseline. Completion rate alone is
+therefore insufficient evidence of a useful optimization. Use each harness's
+own serial baseline; their loop organization/compiler output differs.
+
+This is a fixed-geometry research tool: its copied delay buffers reuse existing
+capacity. It does not implement safe capacity changes for a live application.
+Copying entire delay-buffer state and transferring it between cores every
+64 samples is unsuitable here. A future nonwaiting design should prepare small,
+self-contained work packets and transfer only the state/data needed for that
+quantum, or investigate persistent voice ownership with an explicit deadline
+policy. Keep deterministic randomness, original summation order, division pool
+reuse, full tails and the serial fallback. Neither offline scheduler is connected
+to the application's audio callback; the working single-thread renderer and
+verified 450-voice result remain the current live baseline.
+
+The local snapshot correctness checks also passed AddressSanitizer/
+UndefinedBehaviorSanitizer and ThreadSanitizer with the probe plus spatial,
+delay and filter translation units instrumented. Other linked JUCE/shared-code
+objects were not instrumented; these checks do not establish whole-application
+thread safety.

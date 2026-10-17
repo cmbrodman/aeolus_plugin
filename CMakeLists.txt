@@ -275,6 +275,15 @@ if(AEOLUS_BUILD_TESTS)
     target_link_libraries(aeolus_tests PRIVATE ${TARGET})
     target_include_directories(aeolus_tests PRIVATE $<TARGET_PROPERTY:${TARGET},INCLUDE_DIRECTORIES>)
     target_compile_definitions(aeolus_tests PRIVATE $<TARGET_PROPERTY:${TARGET},COMPILE_DEFINITIONS>)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        # Explicit offline research tool; never run inside an audio callback.
+        add_executable(aeolus_multicore_probe tests/MulticoreProbe.cpp)
+        target_link_libraries(aeolus_multicore_probe PRIVATE ${TARGET})
+        target_include_directories(aeolus_multicore_probe PRIVATE $<TARGET_PROPERTY:${TARGET},INCLUDE_DIRECTORIES>)
+        target_compile_definitions(aeolus_multicore_probe PRIVATE $<TARGET_PROPERTY:${TARGET},COMPILE_DEFINITIONS>)
+        add_test(NAME multicore_snapshot COMMAND aeolus_multicore_probe --check-snapshot)
+        set_tests_properties(multicore_snapshot PROPERTIES TIMEOUT 60)
+    endif()
     add_test(NAME audio_regressions COMMAND aeolus_tests)
     set_tests_properties(audio_regressions PROPERTIES
         ENVIRONMENT "AEOLUS_TEST_DATA_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/test-data;UBSAN_OPTIONS=halt_on_error=1"
