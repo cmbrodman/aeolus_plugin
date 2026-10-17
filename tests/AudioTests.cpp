@@ -141,6 +141,13 @@ void reverbTests()
                 if (i != 2)
                     check(std::abs(left[i]) < 1e-5f && std::abs(right[i]) < 1e-5f, "unexpected impulse tail");
         }
+        float wetSumLeft = -1.0f, wetSumRight = -1.0f;
+        for (int i = 0; i < 256; ++i) {
+            wetSumLeft += left[i];
+            wetSumRight += right[i];
+        }
+        check(std::abs(wetSumLeft - 0.2f) < 0.005f && std::abs(wetSumRight - 0.1f) < 0.005f,
+              "device-rate IR resampling changed convolution gain");
         check(std::abs(switched.tailSeconds() - 128.0f / 44100.0f) < 1.0f / rate, "IR duration changed with device rate");
         for (int change = 0; change < 12; ++change) {
             ir.setSample(0, 0, change * 0.02f);

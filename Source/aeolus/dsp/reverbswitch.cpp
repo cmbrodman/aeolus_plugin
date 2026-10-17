@@ -41,6 +41,9 @@ void ReverbSwitch::prepare(const juce::AudioBuffer<float>& ir, bool zeroDelay, f
             padded.copyFrom(0, 0, ir, ch, 0, ir.getNumSamples());
             interpolator.process(ratio, padded.getReadPointer(0), resampled.getWritePointer(ch), count);
         }
+        // Preserve the discrete convolution gain as the number of IR samples
+        // changes (the same rate correction used by JUCE's convolver).
+        resampled.applyGain(float(ratio));
         source = &resampled;
     }
     conv.setLength(int(source->getNumSamples() / Convolver::BlockSize + 1) * Convolver::BlockSize);
