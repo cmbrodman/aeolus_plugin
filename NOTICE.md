@@ -25,6 +25,8 @@ Aeolus is free software: you may redistribute and modify its GPL-covered code un
 
 - **2026-10-17:** Corrected project agent guidance and documented this fork's implemented organ-console work. Added MIDI event-offset rendering, bounded note-queue overflow recovery, timer-owned state saves, off-callback IR preparation with crossfading and device-rate resampling, Linux SSE3 dispatch and CPU-feature checks, and regression tests. Removed duplicate CMake setup, corrected a C++ declaration blocking GCC builds and padded short IRs for safe convolution. Guarded zero-sized convolution initialization against null-buffer operations. CI now runs the regression target and collects root/asset notices with application artifacts. Original code notices and bundled audio/model bytes remain intact.
 
+- **2026-10-17:** Added separate native Linux ARM64 and x86-64 CI builds and regression runs, architecture-specific artifact names and Linux deployment guidance. Both Linux builds use an Ubuntu 22.04 baseline; target-board audio validation remains separate.
+
 Future modified releases must retain these notices and add accurate change descriptions and dates. Do not backdate changes or replace an original author's notice with a fork contributor's name.
 
 ## Dependencies and assets have their own terms
