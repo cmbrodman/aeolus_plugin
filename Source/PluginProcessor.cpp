@@ -22,6 +22,9 @@
 #include "aeolus/globals.h"
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#if JucePlugin_Build_Standalone
+#include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
+#endif
 
 using namespace juce;
 
@@ -32,6 +35,8 @@ AeolusAudioProcessor::AeolusAudioProcessor()
     , _parameters(*this)
     , _processLoad{0.0f}
     , _panicRequest{false}
+    , _callbackProfiler(aeolus::CallbackProfiler::create(
+          SystemStats::getEnvironmentVariable("AEOLUS_TIMING_FILE", {})))
 {
     _engine.getMidiKeyboardState().addListener(this);
 
@@ -40,6 +45,7 @@ AeolusAudioProcessor::AeolusAudioProcessor()
 
 AeolusAudioProcessor::~AeolusAudioProcessor()
 {
+    _callbackProfiler.reset();
     // If we don't do this there is a leaked AccessibilityHandler instance detected.
     _engine.getMidiKeyboardState().removeListener(this);
 
@@ -217,7 +223,7 @@ void AeolusAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
 {
     using namespace std::chrono;
 
-    auto timestampStart = high_resolution_clock::now();
+    auto timestampStart = steady_clock::now();
 
     juce::ScopedNoDenormals noDenormals;
     auto totalNumInputChannels  = getTotalNumInputChannels();
@@ -246,13 +252,27 @@ void AeolusAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     }
     renderRange(buffer, position, buffer.getNumSamples() - position);
 
-    auto timestampStop = high_resolution_clock::now();
+    int nativeXruns = -1;
+    if (_callbackProfiler != nullptr) {
+#if JucePlugin_Build_Standalone
+        // Read the native counter on the device's own audio thread: the ALSA
+        // implementation updates its plain integer counters on this thread.
+        if (auto* holder = juce::StandalonePluginHolder::getInstance())
+            if (auto* device = holder->deviceManager.getCurrentAudioDevice())
+                nativeXruns = device->getXRunCount();
+#endif
+    }
+    auto timestampStop = steady_clock::now();
     auto duration_us = duration_cast<microseconds> (timestampStop - timestampStart).count();
 
     float realTime_us = 1e6f * (float) buffer.getNumSamples() / _engine.getSampleRate();
     float load = realTime_us > 0.0f ? duration_us / realTime_us : 0.0f;
 
     _processLoad = jmin(1.0f, 0.99f * _processLoad + 0.01f * load);
+    if (_callbackProfiler != nullptr)
+        _callbackProfiler->record(duration_cast<nanoseconds>(timestampStart.time_since_epoch()).count(),
+            duration_cast<nanoseconds>(timestampStop - timestampStart).count(),
+            _engine.getSampleRate(), buffer.getNumSamples(), _engine.getVoiceCount(), nativeXruns);
 }
 
 void AeolusAudioProcessor::renderRange(AudioBuffer<float>& buffer, int start, int count)

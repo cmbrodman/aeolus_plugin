@@ -119,6 +119,24 @@ void scalarConvolutionTest()
     std::cout << "Scalar/dispatched convolution peak difference: " << peak << '\n';
     check(peak < 1e-5f, "SIMD convolution differs from scalar reference");
 }
+void profilerTests()
+{
+    const auto file = aeolus::getTestDataDirectory().getChildFile("callback-profile-test.csv");
+    file.deleteFile();
+    auto profiler = aeolus::CallbackProfiler::create(file.getFullPathName());
+    check(profiler != nullptr, "profiler could not open fresh test CSV");
+    check(aeolus::CallbackProfiler::create(file.getFullPathName()) == nullptr, "profiler overwrote existing file");
+    heapOperations = 0; countHeap = true;
+    for (int i = 0; i < 5000; ++i)
+        profiler->record(i*12000000LL, i == 0 ? 12000000 : 9000000, 44100, 512, 399, i/1000);
+    countHeap = false;
+    check(heapOperations == 0, "profiling allocated/freed on audio producer");
+    profiler.reset();
+    const auto text = file.loadFileAsString();
+    check(text.contains("sequence,start_ns,duration_ns") && text.contains("# dropped_total=905"),
+          "profiler did not report bounded queue overflow");
+    check(text.contains("0,0,12000000,44100.000,512,399,0"), "profiler sample data changed");
+}
 void spatialTests()
 {
     float peak = 0;
@@ -397,7 +415,7 @@ int main(int argc, char** argv)
         fixture.createDirectory();
         fixture.getChildFile("organ_config.json").replaceWithData(BinaryData::default_organ_json, BinaryData::default_organ_jsonSize);
         fixture.getChildFile("organ_state.json").replaceWithText("{}");
-        queueTests(); simdTests(); scalarConvolutionTest(); reverbTests(); concurrentReverbTests(); midiTests(); lifetimeTests();
+        profilerTests(); queueTests(); simdTests(); scalarConvolutionTest(); reverbTests(); concurrentReverbTests(); midiTests(); lifetimeTests();
         std::cout << "Audio/MIDI regressions passed\n";
     } catch (const std::exception& e) {
         countHeap = false;

@@ -29,6 +29,8 @@ Aeolus is free software: you may redistribute and modify its GPL-covered code un
 
 - **2026-10-17:** Added optional Release link-time optimization (enabled in ARM64 CI), spatial-filter reference regression coverage and a kernel benchmark. Evaluated and reverted a block-local filter experiment after no measurable median gain in native ARM64 CI. Added build provenance and a local USB-copy packager including exact committed application/submodule sources. Synthesis quality settings and asset bytes are unchanged.
 
+- **2026-10-17:** Evaluated and discarded a block-based voice-delay candidate after VIM4 measurements showed no benefit. Added opt-in bounded processor telemetry with off-callback CSV writing and native xrun observations, a timing analyzer and a separately named profiling build. Original waveform, filter, delay-length, voice-limit and reverb settings remain intact.
+
 Future modified releases must retain these notices and add accurate change descriptions and dates. Do not backdate changes or replace an original author's notice with a fork contributor's name.
 
 ## Dependencies and assets have their own terms

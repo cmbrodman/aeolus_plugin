@@ -26,6 +26,7 @@ endif()
 
 option(WITH_ASIO "Enable ASIO audio interface" OFF)
 option(WITH_MULTIBUS_OUTPUT "Enable multibus output" OFF)
+option(AEOLUS_PROFILE_BUILD "Use a separate standalone name/settings for profiling" OFF)
 
 option(AEOLUS_ENABLE_IPO "Enable Release link-time optimization (no fast-math)" OFF)
 if(AEOLUS_ENABLE_IPO)
@@ -53,6 +54,10 @@ else()
     set(PRODUCT_NAME "${PROJECT_NAME}")
     set(PLUGIN_DESCRIPTION "${PRODUCT_NAME} stereo")
     set(PLUGIN_CODE "E6he")
+endif()
+
+if(AEOLUS_PROFILE_BUILD)
+    set(PRODUCT_NAME "${PRODUCT_NAME}-Profile")
 endif()
 
 juce_add_plugin(${TARGET}

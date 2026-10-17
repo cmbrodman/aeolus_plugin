@@ -31,3 +31,37 @@ Preserve the working display/touch configuration and existing organ files. Use t
 Compare an unchanged build and an IPO-only build first; measure each subsequent DSP candidate separately. Record uncapped callback median/p99/worst times and deadline misses/xruns, sustained voices, note-off/release behavior and reverb settings. Listen to repeatable passages and tails. The existing capped/smoothed audio meter and process CPU alone do not establish an improvement. Do not claim the handoff's observed polyphony as a new validated result.
 
 The older VIM4 delay-index experiment is not imported: it reportedly gave little observable improvement and remains a local experiment on that machine. The GCC declaration correction is already in the repository. Convolution idle suspension, NEON kernels, multicore synthesis and algorithmic reverb remain separate work; none is implied by enabling IPO.
+
+## VIM4 delay experiment: rejected
+
+A block-based delay candidate preserved output/history bit-for-bit but did not improve full-engine performance on the VIM4. The candidate is removed; the original voice-delay implementation remains. Experimental source is retained in Git history at `4ece46c`.
+
+On 2026-10-17, native GCC 13.3 Release/IPO builds were tested in reference/candidate/reference order with the same copied organ/settings, reverb down, direct FiiO USB ALSA output, 399 sustained voices and 44,100 Hz / 512 frames (11.610 ms nominal budget). Each measured window contained 1,724 processor calls over approximately 20 seconds after five seconds of settling.
+
+| Run | Median ms | p99 ms | Worst ms | Processor budget exceeded | Native xrun increase |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Reference 1 | 10.376 | 11.241 | 11.924 | 4 | 0 |
+| Candidate | 10.570 | 11.394 | 12.919 | 5 | 0 |
+| Reference 2 | 10.302 | 11.023 | 11.759 | 3 | 0 |
+
+The candidate median was approximately 1.9–2.6% slower than the two reference runs, so it was rejected. This short comparison does not establish a universal regression or a new maximum voice count. The listener reported all three runs clean. All captures closed normally with zero telemetry drops or sequence gaps. Processor-budget exceedances are distinct from native xruns. The main CPU cluster held 2.208 GHz during measured load; no governor, priority or thermal settings were changed. Original organ and application settings were verified unchanged by hashes.
+
+The hosted ARM delay microbenchmark had suggested about 1.54x kernel throughput, but the native VIM4 kernel test was approximately unchanged. This illustrates why hosted kernel speedups must be checked in the full application on target hardware.
+
+## Processor telemetry
+
+For device testing, build with `AEOLUS_PROFILE_BUILD=ON`. This gives the standalone a separate `Aeolus-Profile` application/settings name. In a test-enabled build, also set `AEOLUS_TEST_DATA_DIRECTORY` to a **test-owned copy** of the organ directory and settings. This override does not redirect standalone audio-device settings, which are isolated by the separate application name. Do not run normal and profile applications against the same exclusive ALSA device simultaneously.
+
+Opt into timing with a fresh, absolute `.csv` path:
+
+```sh
+AEOLUS_TIMING_FILE=/tmp/aeolus-baseline-unique.csv ./Aeolus-Profile
+python3 tools/analyze_callback_profile.py /tmp/aeolus-baseline-unique.csv \
+  --voices 399 --warmup-seconds 5
+```
+
+Relative paths, existing files and non-CSV extensions are refused. Without the environment variable, no profiling queue or output stream is allocated. The audio thread publishes fixed-size records to a bounded SPSC queue; an owned message-thread timer writes the file every 200 ms. Queue overflow drops telemetry rather than blocking audio; sequence gaps and a final dropped-record count expose incomplete captures. Close the application normally to drain queued records and write the footer. The current UI CPU meter remains unchanged.
+
+Records use a monotonic clock and include processor duration, block size, engine/device sample rate, active voice count and the native device xrun count. The native count is read on the device audio thread (important for JUCE's ALSA counters); `-1` means unavailable. No file I/O, allocation or blocking synchronization is added to processing.
+
+The analyzer reports median/p99/worst processor time, consecutive processor-start intervals and budget utilization, processor calls longer than `frames/sample_rate`, native xrun counter increases across the selected span, counter resets and telemetry drops. **Processor-budget exceedances are not the same as confirmed device deadline misses.** This measures `processBlock`, excluding surrounding JUCE device handling, format conversion and ALSA writes. Native xruns provide a separate device-level observation, and an xrun after the final recorded processor call may not be observed. Timing publication and file-writing overhead should be held constant across A/B runs. Inspect note attacks/releases as well as sustained 399-voice periods.

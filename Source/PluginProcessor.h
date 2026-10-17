@@ -22,6 +22,7 @@
 #include <JuceHeader.h>
 
 #include "aeolus/engine.h"
+#include "aeolus/callbackprofiler.h"
 
 #include "Parameters.h"
 
@@ -105,6 +106,7 @@ private:
 
     std::atomic<float> _processLoad;
     std::atomic<bool> _panicRequest;
+    std::unique_ptr<aeolus::CallbackProfiler> _callbackProfiler;
 
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AeolusAudioProcessor)
