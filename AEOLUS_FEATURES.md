@@ -306,3 +306,20 @@ Before distributing any binary:
 - [ ] Supply corresponding source, patches, build/configuration scripts and required installation/relinking information for the selected distribution method. Preserve license texts and copyright notices and verify the recipient can rebuild the delivered version.
 
 **Decision boundary:** Research supports the prototypes above. No UI rewrite, backend removal, DSP replacement, performance improvement or legal-compliance certification is claimed by this addendum. All original sound-preservation, stereo fallback and explicit-approval requirements remain in force.
+
+
+## Reliability implementation update — 2026-10-17
+
+A focused maintenance increment addresses issues in the existing engine before
+larger roadmap features: host MIDI event-offset rendering (retaining the existing
+64-sample synthesis quantum), note-queue overflow panic and short-note voice
+reclamation, engine-owned save timers, message-thread IR preparation with atomic
+ownership transfer and a 50 ms crossfade, device-rate IR resampling, Linux SSE3
+kernel dispatch with scalar fallback, corrected CPU checks, and duplicate CMake
+setup removal. The optional `AEOLUS_BUILD_TESTS` target covers these paths with an
+isolated profile. See README for build/test commands and transition tradeoffs.
+
+This increment does not implement algorithmic reverb, configurable stereo pairs,
+MIDI device reconnect policy, ARM NEON, multicore voice rendering or the proposed
+touchscreen redesign. Actual-device xrun, listening and platform checks remain
+necessary; test results are reported with the change rather than inferred here.

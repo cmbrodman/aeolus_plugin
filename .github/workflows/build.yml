@@ -11,7 +11,7 @@ on:
       - 'docs/**'
   push:
     branches:
-      - main
+      - master
     paths-ignore:
       - 'docs/**'
 
@@ -47,7 +47,7 @@ jobs:
     steps:
     - name: Install Linux dependencies
       if: matrix.os == 'ubuntu-latest'
-      run: sudo apt-get update && sudo apt-get install ninja-build libx11-dev libfreetype-dev libfontconfig-dev libasound2-dev libxrandr-dev libxinerama-dev libxcursor-dev
+      run: sudo apt-get update && sudo apt-get install ninja-build libx11-dev libfreetype-dev libfontconfig-dev libasound2-dev libxrandr-dev libxinerama-dev libxcursor-dev libgl1-mesa-dev xvfb
 
     - name: Install macOS dependencies
       if: matrix.os == 'macos-latest'
@@ -76,11 +76,35 @@ jobs:
         cmake \
           -G "${{ matrix.generator }}" \
           -DWITH_ASIO=${{ matrix.asio }} \
+          -DAEOLUS_BUILD_TESTS=ON \
           -DCMAKE_BUILD_TYPE=Release \
           -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
           -S "${{ env.dir_source }}" \
           -B "${{ env.dir_build }}"
         cmake --build "${{ env.dir_build }}" --config "${{ env.type }}"
+
+    - name: Run regression tests (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: xvfb-run -a ctest --test-dir "${{ env.dir_build }}" -C Release --output-on-failure
+
+    - name: Run regression tests (macOS / Windows)
+      if: matrix.os != 'ubuntu-latest'
+      run: ctest --test-dir "${{ env.dir_build }}" -C Release --output-on-failure
+
+    - name: Collect license and asset notices
+      run: |
+        python - <<'PYTHON'
+        from pathlib import Path
+        import shutil
+        destination = Path("${{ matrix.path }}") / "Notices"
+        destination.mkdir(parents=True, exist_ok=True)
+        for name in ("LICENSE.txt", "NOTICE.md", "THIRD_PARTY_NOTICES.md"):
+            shutil.copy2(name, destination / name)
+        shutil.copytree("LICENSES", destination / "LICENSES", dirs_exist_ok=True)
+        (destination / "docs").mkdir(exist_ok=True)
+        for name in ("ASSET_NOTICES.md", "asset-provenance.json", "DISTRIBUTION_CHECKLIST.md"):
+            shutil.copy2(Path("docs") / name, destination / "docs" / name)
+        PYTHON
 
     - name: List errors
       run: cat "${{ env.dir_build }}/CMakeFiles/CMakeError.log" || true
@@ -94,6 +118,7 @@ jobs:
       with:
         name: aeolus-${{ matrix.name }}
         path: |
+          ${{ matrix.path }}/Notices
           ${{ matrix.path }}/Standalone
           ${{ matrix.path }}/AU
           ${{ matrix.path }}/LV2

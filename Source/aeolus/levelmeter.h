@@ -40,6 +40,7 @@ public:
     float getRMSLevel() const noexcept { return _rms; }
 
     void process(const juce::AudioBuffer<float>& buffer);
+    void process(const juce::AudioBuffer<float>& buffer, int start, int count);
     void process(const juce::AudioBuffer<float>& buffer, int channel);
     void process(float* const buffer, int size);
 

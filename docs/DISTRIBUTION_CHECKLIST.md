@@ -1,6 +1,6 @@
 # Distribution checklist
 
-Updated 2026-10-15. Use this alongside the complete applicable licenses; completing notices alone does not fulfill all source-delivery or asset-permission requirements.
+Updated 2026-10-17. Use this alongside the complete applicable licenses; completing notices alone does not fulfill all source-delivery or asset-permission requirements.
 
 ## Source releases
 
@@ -21,6 +21,6 @@ Updated 2026-10-15. Use this alongside the complete applicable licenses; complet
 - Ensure recipients can find the copyright, license and no-warranty notices. Preserve existing interactive legal notices when present; assess GPLv3 section 5(d)'s original-interface exception rather than assuming a new About screen is always mandatory.
 - Package all ten recordings' designated credits, CC BY 4.0 license/link and conversion notices from ASSET_NOTICES.md. Preserve stop-model GPL grants, embedded author/comment fields and editable model sources. Fonts stay under OFL with reserved-name conditions; recordings stay under CC BY 4.0. Do not relabel them under the application GPL.
 - For ASIO-enabled Windows builds, verify the downloaded legacy SDK's exact license and required notices. It is not cleared merely because the Linux target defaults to ASIO OFF.
-- Check that the final archive/image actually contains these materials; the existing CI artifact uploader does not automatically collect root-level documentation/license files.
+- Check that the final archive/image actually contains these materials; CI now collects the root license/notice files, LICENSES directory and asset documentation into a Notices directory. Check target-specific transitive dependency notices and matching corresponding source separately; that copy step is not a complete release clearance.
 
 No binaries are built or released by the notice-only update of 2026-10-15. Audio behavior, original source headers, font bytes and impulse-response bytes are unchanged.

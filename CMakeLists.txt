@@ -15,27 +15,6 @@
 
 cmake_minimum_required(VERSION 3.20)
 
-project(Aeolus)
-
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-
-if(MSVC)
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "Runtime Library")
-endif()
-
-option(WITH_ASIO "Enable ASIO audio interface" OFF)
-
-option(WITH_MULTIBUS_OUTPUT "Enable multibus output" OFF)
-
-add_subdirectory(JUCE)
-
-set(plugin_formats
-    Standalone
-)
-
-cmake_minimum_required(VERSION 3.20)
-
 project(Aeolus VERSION 0.3.0)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -47,6 +26,8 @@ endif()
 
 option(WITH_ASIO "Enable ASIO audio interface" OFF)
 option(WITH_MULTIBUS_OUTPUT "Enable multibus output" OFF)
+
+add_subdirectory(JUCE)
 
 set(plugin_formats
     Standalone
@@ -245,4 +226,20 @@ endif()
 
 if(APPLE)
     target_compile_definitions(${TARGET} PUBLIC JUCE_AU=1)
+endif()
+
+# Opt-in integration tests use a separate profile; production builds have no
+# test-directory override. The tests link the same shared code as Standalone.
+option(AEOLUS_BUILD_TESTS "Build audio/MIDI regression tests" OFF)
+if(AEOLUS_BUILD_TESTS)
+    enable_testing()
+    target_compile_definitions(${TARGET} PRIVATE AEOLUS_TESTING=1 JUCE_MODAL_LOOPS_PERMITTED=1)
+    add_executable(aeolus_tests tests/AudioTests.cpp)
+    target_link_libraries(aeolus_tests PRIVATE ${TARGET})
+    target_include_directories(aeolus_tests PRIVATE $<TARGET_PROPERTY:${TARGET},INCLUDE_DIRECTORIES>)
+    target_compile_definitions(aeolus_tests PRIVATE $<TARGET_PROPERTY:${TARGET},COMPILE_DEFINITIONS>)
+    add_test(NAME audio_regressions COMMAND aeolus_tests)
+    set_tests_properties(audio_regressions PROPERTIES
+        ENVIRONMENT "AEOLUS_TEST_DATA_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/test-data"
+        TIMEOUT 180)
 endif()

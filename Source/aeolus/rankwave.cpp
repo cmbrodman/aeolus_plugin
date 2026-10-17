@@ -96,7 +96,10 @@ void Pipewave::release(Pipewave::State& state)
 {
     jassert(state.env == Pipewave::Attack || state.env == Pipewave::Release);
     jassert(state.pipewave == this);
-    state.env = Pipewave::Release;
+    // A note can be released before the next 64-sample synthesis quantum.
+    // There is no harmonic tail to play if playback has never started.
+    state.env = state.playPtr == nullptr && state.releasePtr == nullptr
+                  ? Pipewave::Over : Pipewave::Release;
 }
 
 void Pipewave::play(Pipewave::State& state, float* out)
