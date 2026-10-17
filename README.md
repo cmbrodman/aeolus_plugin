@@ -115,6 +115,26 @@ The checked-in ASIO directory contains download instructions only. An ASIO-enabl
 
 The [JUCE Unofficial CLAP Plugin Support](https://github.com/free-audio/clap-juce-extensions) submodule is retained, but current CMake does not integrate or produce a CLAP target.
 
+### ARM optimization and USB copies
+
+The ARM64 CI build enables Release link-time optimization (`AEOLUS_ENABLE_IPO=ON`). It retains normal floating-point semantics and the existing synthesis, filters, spatialization and convolution. No fast-math flags or reduced-quality mode are added. See [ARM optimization notes](docs/ARM_OPTIMIZATION.md) for equivalence tests, kernel measurements and the VIM4 measurement procedure.
+
+To reproduce an optimized native build:
+
+```sh
+cmake -S . -B build-arm -DCMAKE_BUILD_TYPE=Release -DAEOLUS_ENABLE_IPO=ON
+cmake --build build-arm --parallel 2
+```
+
+CI artifacts include `BuildInfo.json` identifying the exact source commit. After downloading the ARM64 artifact and fetching that commit locally, create a USB-copy folder with its matching application and submodule sources:
+
+```sh
+python3 tools/package_linux.py --artifact /path/to/extracted/aeolus-linux-arm64 \
+  --commit COMMIT_FROM_BUILDINFO --destination /path/to/new/Aeolus-ARM64
+```
+
+Copy the entire generated folder, including notices, source archive and checksums. On the VIM4, copy it to a writable Linux directory and launch `Start Aeolus.sh` from the desktop or a terminal. USB filesystems may lack executable permissions or be mounted `noexec`; after copying, use `chmod +x 'Start Aeolus.sh' Standalone/Aeolus` if needed. Packaging does not copy or overwrite your existing organ data.
+
 ## Development and validation
 
 Read [AGENTS.md](AGENTS.md) for source layout, real-time audio requirements, configuration handling and verification guidance; [CLAUDE.md](CLAUDE.md) adds Claude-specific guidance. Preserve custom organs and use isolated user data for tests.
