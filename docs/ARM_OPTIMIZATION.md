@@ -135,6 +135,11 @@ Both successful 450-voice windows sampled the main CPU cluster at 2.208 GHz; SoC
 
 ## Multicore scaling experiment
 
+> A live, opt-in batch renderer based on these findings is described in
+> [MULTICORE.md](MULTICORE.md). It lets the callback wait for in-flight worker
+> jobs under real-time scheduling, rather than using the nonwaiting snapshot
+> designs below. It is not yet measured on the VIM4.
+
 The VIM4 reports performance CPUs 0–3 (capacity 1024, maximum 2.208 GHz)
 and efficiency CPUs 4–7 (capacity 577, maximum 2.016 GHz). These indices are
 specific to the tested board/kernel; discover topology before applying affinity

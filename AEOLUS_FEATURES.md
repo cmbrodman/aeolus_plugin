@@ -191,6 +191,7 @@
 4. Profile repeated buffer clears, copies and division mixing; reduce memory traffic and improve voice traversal/cache locality without introducing audio-thread allocations.
 5. Keep voice pools preallocated, recycle only after audible tails finish, and preserve exact MIDI/stop/coupler semantics.
 6. Add persistent multicore workers with private accumulation buffers and deterministic summing. Start with division jobs, then test bounded voice chunks for load balancing; retain a low-overhead single-thread fast path when appropriate.
+   *Status (2026-10-17):* an opt-in batch renderer with voice-group jobs, deterministic group summation and real-time worker scheduling is implemented and tested on x86-64 ([MULTICORE.md](docs/MULTICORE.md)). The serial renderer remains the default. VIM4 timing, listening and capacity have not been measured, and the callback's wait for in-flight worker jobs must be evaluated against the deadline requirements in 14.3 and 14.4.
 7. Consider optional quality/performance profiles only with explicit user control and documented sonic differences; no automatic degradation by default.
 8. Tune Linux audio scheduling, CPU governor, affinity and thermals after baseline measurements; test actual xruns and end-to-end key-to-sound latency.
 
