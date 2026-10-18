@@ -728,17 +728,17 @@ bool Division::process(AudioBuffer<float>& targetBuffer, AudioBuffer<float>& voi
     return true;
 }
 
-void Division::controlStep(int batchQuantum, int* batchLimit)
+void Division::controlStep(int batchQuantum, int batchLength)
 {
     _batchQuantum = batchQuantum;
-    _batchLimit = batchLimit;
+    _batchLength = batchLength;
 
     updateAggregatedKeysState();
     releaseVoicesOfDisabledStops();
     triggerVoicesOfEnabledStops();
 
     _batchQuantum = -1;
-    _batchLimit = nullptr;
+    _batchLength = 0;
 }
 
 void Division::modulate(juce::AudioBuffer<float>& targetBuffer, const juce::AudioBuffer<float>& tremulantBuffer)
@@ -841,9 +841,7 @@ void Division::releaseVoicesOfDisabledStops()
         if (shouldRelease) {
             if (_batchQuantum >= 0) {
                 voice->scheduleRelease(_batchQuantum);
-
-                if (_batchLimit != nullptr)
-                    *_batchLimit = jmin(*_batchLimit, voice->predictFinishQuantum(*_batchLimit) + 1);
+                voice->setFinishQuantum(voice->predictFinishQuantum(_batchLength));
             } else
                 voice->release();
         }
@@ -874,7 +872,11 @@ void Division::triggerVoicesOfEnabledStops()
         while (voice != nullptr) {
             const int voiceNote{ voice->getNote() };
 
-            if (voice->stopIndex() == stopIndex && voiceNote >= 0 && _aggregatedKeysState[voiceNote]) {
+            // In the serial renderer a finished voice has already left the
+            // list; the batch renderer keeps it until the batch ends.
+            const bool present = _batchQuantum < 0 || !voice->hasFinishedBefore(_batchQuantum);
+
+            if (present && voice->stopIndex() == stopIndex && voiceNote >= 0 && _aggregatedKeysState[voiceNote]) {
                 hasVoices = true;
                 missingNotes[voiceNote] = 0;
                 break;

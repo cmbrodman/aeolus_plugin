@@ -696,6 +696,8 @@ void batchRendererTests()
 struct WindowStats
 {
     std::vector<double> ms;
+    std::vector<int> batches;   ///< Batch renderer batches per block.
+    void add(double blockMs, int blockBatches) { ms.push_back(blockMs); batches.push_back(blockBatches); }
     void print(const char* name, double budget) const
     {
         if (ms.empty()) { std::cout << name << ": no blocks\n"; return; }
@@ -705,7 +707,14 @@ struct WindowStats
         const auto over = std::count_if(ms.begin(), ms.end(), [&](double v) { return v > budget; });
         std::cout << std::fixed << std::setprecision(3) << name << ": blocks " << ms.size()
                   << ", p50 " << at(0.5) << " ms, p99 " << at(0.99) << " ms, max " << sorted.back()
-                  << " ms, over budget " << over << '\n';
+                  << " ms, over budget " << over;
+        if (!batches.empty() && *std::max_element(batches.begin(), batches.end()) > 0) {
+            double mean = 0;
+            for (int b : batches) mean += b;
+            std::cout << ", batches/block mean " << std::setprecision(2) << mean / double(batches.size())
+                      << " max " << *std::max_element(batches.begin(), batches.end());
+        }
+        std::cout << '\n';
     }
 };
 
@@ -753,23 +762,53 @@ void engineBenchmark(int numNotes, double holdSeconds)
     const int holdBlocks = int(holdSeconds * rate / blockSize);
 
     using Clock = std::chrono::steady_clock;
+    int lastBlockBatches = 0;
     const auto timeBlock = [&] {
+        auto* team = engine.getDspTeam();
+        const auto batchesBefore = team != nullptr ? team->getStats().batches : 0;
         const auto start = Clock::now();
         processor.processBlock(audio, midi);
+        const auto ms = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
         midi.clear();
-        return std::chrono::duration<double, std::milli>(Clock::now() - start).count();
+        lastBlockBatches = team != nullptr ? int(team->getStats().batches - batchesBefore) : 0;
+        return ms;
     };
 
     for (int i = 0; i < 40; ++i) timeBlock(); // warm up
     for (int note : notes) midi.addEvent(juce::MidiMessage::noteOn(1, note, 1.0f), 0);
     for (int b = 0; b < holdBlocks; ++b) {
         const double ms = timeBlock();
-        (b < attackBlocks ? attack : sustain).ms.push_back(ms);
+        (b < attackBlocks ? attack : sustain).add(ms, lastBlockBatches);
         peakVoices = std::max(peakVoices, engine.getVoiceCount());
     }
     for (int note : notes) midi.addEvent(juce::MidiMessage::noteOff(1, note), 0);
-    for (int b = 0; b < int(10 * rate / blockSize) && (b == 0 || engine.getVoiceCount() > 0); ++b)
-        release.ms.push_back(timeBlock());
+
+    // AEOLUS_BENCHMARK_RETRIGGER_MS: replay the chord this long after the
+    // release, while the first chord's tails may still occupy the pool.
+    WindowStats retrigger;
+    if (const char* gap = std::getenv("AEOLUS_BENCHMARK_RETRIGGER_MS")) {
+        const int gapBlocks = std::max(1, int(std::atof(gap) * rate / 1000.0 / blockSize));
+        for (int b = 0; b < gapBlocks; ++b) {
+            const double ms = timeBlock();
+            release.add(ms, lastBlockBatches);
+        }
+        for (int note : notes) midi.addEvent(juce::MidiMessage::noteOn(1, note, 1.0f), 0);
+        for (int b = 0; b < holdBlocks; ++b) {
+            const double ms = timeBlock();
+            retrigger.add(ms, lastBlockBatches);
+            peakVoices = std::max(peakVoices, engine.getVoiceCount());
+            if (ms > 1000.0) {
+                std::cout << "Retrigger block " << b << " took " << ms << " ms, voices " << engine.getVoiceCount() << '\n';
+                break;
+            }
+        }
+        for (int note : notes) midi.addEvent(juce::MidiMessage::noteOff(1, note), 0);
+    }
+
+    for (int b = 0; b < int(10 * rate / blockSize) && (b == 0 || engine.getVoiceCount() > 0); ++b) {
+        const double ms = timeBlock();
+        release.add(ms, lastBlockBatches);
+    }
 
     auto& report = aeolus::rt::audioThreadReport();
     aeolus::rt::ThreadPolicyStatus status;
@@ -783,6 +822,8 @@ void engineBenchmark(int numNotes, double holdSeconds)
     attack.print("Attack (first second)", budget);
     sustain.print("Sustain", budget);
     release.print("Release (until silent)", budget);
+    if (!retrigger.ms.empty())
+        retrigger.print("Retrigger (hold)", budget);
     if (auto* team = engine.getDspTeam()) {
         const auto stats = team->getStats();
         std::cout << "Team: " << stats.batches << " batches, " << stats.jobsByWorkers << "/" << stats.jobs

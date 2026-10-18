@@ -1922,17 +1922,19 @@ void Engine::renderBatch(int numQuanta)
 
     // A voice that finishes leaves its division's list in the serial renderer,
     // which later control steps observe (a stop with no remaining voices for
-    // held keys is retriggered). End the batch at the first quantum in which
-    // any voice finishes, so finished voices are reclaimed at the same point.
+    // held keys is retriggered). Record when each voice will finish so that
+    // control steps treat it as gone from the following quantum; it is
+    // reclaimed when the batch ends. (Ending the batch at every finishing
+    // voice instead fragments callbacks into many short batches during
+    // releases, multiplying the per-batch overhead.)
     for (auto* division : _divisions)
         for (auto* voice = division->getActiveVoices().first(); voice != nullptr; voice = voice->next())
-            numQuanta = jmin(numQuanta, voice->predictFinishQuantum(numQuanta) + 1);
+            voice->setFinishQuantum(voice->predictFinishQuantum(numQuanta));
 
-    // Control steps for every quantum, in serial order. Releases scheduled
-    // here may shorten the batch further.
+    // Control steps for every quantum, in serial order.
     for (int q = 0; q < numQuanta; ++q)
         for (auto* division : _divisions)
-            division->controlStep(q, &numQuanta);
+            division->controlStep(q, numQuanta);
 
     // Render all voices for the whole batch.
     buildBatchJobs(_rtConfig.dspGroupSize);

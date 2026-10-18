@@ -29,6 +29,7 @@
 
 #include <vector>
 #include <atomic>
+#include <limits>
 
 AEOLUS_NAMESPACE_BEGIN
 
@@ -97,14 +98,22 @@ public:
      * Quantum of the current batch after which isOver() becomes true, or
      * numQuanta if that does not happen before numQuanta. Derived from the
      * envelope state and any scheduled release without rendering, mirroring
-     * Pipewave::play() and process(). The batch renderer ends a batch there,
-     * so that finished voices leave their division exactly when they would
-     * in the serial renderer.
+     * Pipewave::play() and process().
      */
     int predictFinishQuantum(int numQuanta) const noexcept;
 
+    /// Record predictFinishQuantum() for control steps later in the batch.
+    void setFinishQuantum(int quantum) noexcept { _finishQuantum = quantum; }
+
+    /**
+     * True if the serial renderer would already have removed this voice from
+     * its division before the given quantum's control step. The batch
+     * renderer reclaims finished voices at the end of the batch instead.
+     */
+    bool hasFinishedBefore(int quantum) const noexcept { return _finishQuantum < quantum; }
+
     /// Clear per-batch scheduling.
-    void endBatch() noexcept { _batchStart = 0; _releaseQuantum = -1; }
+    void endBatch() noexcept { _batchStart = 0; _releaseQuantum = -1; _finishQuantum = std::numeric_limits<int>::max(); }
 
 private:
     Engine& _engine;
@@ -138,6 +147,7 @@ private:
 
     int _batchStart{ 0 };
     int _releaseQuantum{ -1 };
+    int _finishQuantum{ std::numeric_limits<int>::max() };
 };
 
 //==============================================================================

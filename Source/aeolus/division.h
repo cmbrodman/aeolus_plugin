@@ -167,10 +167,10 @@ public:
      * Per-quantum key, release and trigger handling, as done at the start of
      * process(). With batchQuantum >= 0 (batch renderer), releases are
      * scheduled for that quantum instead of applied, and new voices start
-     * sounding at that quantum. batchLimit is reduced so that the batch ends
-     * at the quantum in which a released voice finishes.
+     * sounding at that quantum. batchLength is the number of quanta in the
+     * batch, used to predict when released voices finish.
      */
-    void controlStep(int batchQuantum = -1, int* batchLimit = nullptr);
+    void controlStep(int batchQuantum = -1, int batchLength = 0);
     void modulate(juce::AudioBuffer<float>& targetBuffer, const juce::AudioBuffer<float>& tremulantBuffer);
 
     void releaseVoicesOfDisabledStops();
@@ -269,8 +269,8 @@ private:
     /// Quantum of the batch whose control step is running, or -1.
     int _batchQuantum{ -1 };
 
-    /// Batch length, shortened when a scheduled release lets a voice finish.
-    int* _batchLimit{ nullptr };
+    /// Number of quanta in the batch whose control step is running.
+    int _batchLength{ 0 };
 
     Level _volumeLevel;
 

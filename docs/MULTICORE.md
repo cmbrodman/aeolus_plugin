@@ -196,8 +196,8 @@ renders a **batch** of quanta. The batch length is the exact number of quanta
 the current `process()` call will consume. It is computed by replaying the
 interpolator's arithmetic (`countSubFramesNeeded`), so a batch never runs ahead
 of a MIDI event: the processor still renders up to each event's sample offset
-and applies events between `process()` calls. The batch is capped at 32 quanta
-and shortened as described below. Each batch then runs these phases:
+and applies events between `process()` calls. The batch is capped at 32 quanta.
+Each batch then runs these phases:
 
 1. **Control, serial.** For each quantum *q*, in the original division order,
    each division runs its control step: key aggregation, releases for released
@@ -210,9 +210,18 @@ and shortened as described below. Each batch then runs these phases:
    remaining voice for a held key is retriggered (see the coupler issue below).
    `Voice::predictFinishQuantum()` derives, from the envelope state, release
    length and post-release counter, the quantum in which each voice will finish.
-   It mirrors `Pipewave::play()` and `Voice::process()`. The batch ends at that
-   quantum, so finished voices are reclaimed at the same point as in the serial
-   renderer. Releases scheduled during phase 1 can shorten the batch further.
+   It mirrors `Pipewave::play()` and `Voice::process()`, and is recomputed when
+   phase 1 schedules a release. Control steps for later quanta treat the voice
+   as already gone, as the serial renderer would; the voice itself is returned
+   to the pool when the batch ends.
+
+   An earlier version (commit `1c0b1a8`) ended the batch at every quantum in
+   which a voice finished. During mass releases, that split 512-frame callbacks
+   into up to 8 one-quantum batches (3.6 on average in the host benchmark).
+   Each batch repeated the worker wake-up, job setup and list walks, so the
+   worst release block cost about 70% more than a sustained block despite
+   fewer voices. With the finish prediction, releases stay at one batch per
+   callback.
 3. **Render, parallel.** Each division's voice list is cut into jobs of up to
    `AEOLUS_DSP_GROUP_SIZE` consecutive voices. Each job renders its voices for
    the whole batch into a private stereo buffer, adding them in list order, and
@@ -280,10 +289,10 @@ The remaining differences are intentional or edge cases:
    groups are summed. This is a floating-point rounding difference only: the
    peak difference is 3.6 × 10⁻⁷ at a signal peak of about 1.5 in the test
    fixture. Use group size 1 to remove it, at some cost.
-3. **Pool exhaustion.** When the pool is full, a voice finishing in quantum *q*
-   becomes available at the end of the batch rather than to divisions later in
-   the same quantum. This only matters when notes are already being dropped. Set
-   `AEOLUS_MAX_VOICES` above the target load.
+3. **Pool exhaustion.** When the pool is full, a voice finishing during a batch
+   becomes available for new notes when the batch ends (at most one callback
+   later) rather than in the next quantum. This only matters when notes are
+   already being dropped. Set `AEOLUS_MAX_VOICES` above the target load.
 4. **Stop and parameter changes from the UI** take effect at a batch boundary,
    at most one callback later. Their arrival time relative to the audio stream
    was already arbitrary.
@@ -349,6 +358,11 @@ copies of the organ data, as before.
    voices. Repeat in reverse order and log the clock and temperature. Also
    compare `AEOLUS_BENCHMARK_FULL_VOICE_CLEAR=1` against unset for the
    attack/release effect.
+
+   `AEOLUS_BENCHMARK_RETRIGGER_MS=300` replays the chord 300 ms after its
+   release, while the first chord's tails still occupy the pool, and reports a
+   separate "Retrigger" window. Every window reports batches per block for the
+   batch renderer; it should stay at 1 for 512-frame blocks.
 2. **Live A/B/A** with the profile build, direct FiiO ALSA output at
    44,100 / 512: serial reference, batch with 3 workers, then serial reference
    again, at the same registrations. Include simultaneous-attack chords and
@@ -363,6 +377,62 @@ copies of the organ data, as before.
 Acceptance: clean listening, and processor p99 below the 11.61 ms period with
 margin, at the target voice count. Repeat after 10 minutes of sustained load to
 expose throttling.
+
+## Reported hang after release and replay (2026-10-18, open)
+
+On the VIM4, at 1,024 sustained voices (about 50% CPU, reverb on), releasing
+the chord and playing a very large chord again within one to two seconds
+locked up the application. The UI stopped responding, sound continued, and the
+application did not recover after several minutes.
+
+**Not reproduced offline.** On the x86 host, `--benchmark-engine` with
+`AEOLUS_MAX_VOICES=1024`, 20–45 notes (up to about 2,100 voices requested) and
+replay gaps of 20, 100, 300 and 1,000 ms ran within budget with 0 and 3
+workers. Pool exhaustion caused no retry storm: every stop still has voices for
+some held key, so no stop is retried each quantum. What the benchmark omits:
+the audio device, real-time priority, MIDI input, the UI and the A73 cores'
+much higher cost for the per-batch serial work.
+
+**Fixed contributing cost.** Release windows split callbacks into up to 8
+batches (see phase 2 above). That is the exact window in which the hang
+started, and on the A73 the overhead adds to the new chord's attack spike.
+
+**Leading explanations, to be distinguished on the board:**
+
+1. **ALSA catch-up or stall after an overload spike (pre-existing path).**
+   JUCE's ALSA backend never stops the stream on underrun
+   (`stop_threshold = boundary`). Once the callback falls behind, it runs
+   callbacks back to back and recovers only if each one takes less than real
+   time. The VIM4 notes already record an unresolved "persistent stream stall"
+   from before the multicore work: chopped audio with about 3 s gaps (the
+   2,000 ms `snd_pcm_wait` timeout), the ALSA thread waiting in `snd_pcm_wait`,
+   and recovery only when the device was reopened.
+2. **Lock starvation of the UI.** While callbacks run back to back, the
+   `SCHED_FIFO` audio thread releases and immediately re-takes the
+   device/processor callback locks. The UI thread then waits indefinitely if
+   it needs one of them. Notes played from the on-screen keyboard would also
+   never be released.
+3. **The audio thread waiting for a worker job that never completes.** No
+   mechanism for this has been found. Tests, including 3-worker renders, pass
+   under ThreadSanitizer.
+
+**Capture when it happens** (from SSH, before using panic or killing it):
+
+```sh
+pid=$(pidof Aeolus)            # or Aeolus-Profile
+ps -L -o tid,cls,rtprio,psr,stat,pcpu,wchan:30,comm -p "$pid"
+top -H -b -n 2 -d 1 -p "$pid" | tail -n 40
+sudo gdb -p "$pid" -batch -ex "thread apply all bt 25" > aeolus-hang-bt.txt 2>&1
+cat /proc/asound/card*/pcm0p/sub0/status    # hw_ptr/appl_ptr, state
+```
+
+Also record whether the sound is the held chord continuing normally, chopped
+bursts, or a short loop, and run it with a timing file
+(`AEOLUS_TIMING_FILE`). Back-to-back callback start intervals indicate ALSA
+catch-up; long gaps indicate a stall; no records indicate a blocked callback.
+To isolate the cause, repeat with:
+- `AEOLUS_DSP_WORKERS` unset (serial renderer, same priority);
+- `AEOLUS_AUDIO_RT_PRIORITY=0` (batch renderer without real-time priority).
 
 ## Known issues found during this work
 
