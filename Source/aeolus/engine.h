@@ -33,7 +33,10 @@
 #include <mutex>
 #include "aeolus/dsp/interpolator.h"
 #include "aeolus/dsp/limiter.h"
+#include "aeolus/rtconfig.h"
+#include "aeolus/dspteam.h"
 #include "mts/libMTSClient.h"
+#include <array>
 #include <optional>
 #include <vector>
 #include <map>
@@ -356,6 +359,16 @@ public:
 
     VoicePool& getVoicePool() noexcept { return _voicePool; }
 
+    /// Scheduling/rendering configuration read from the environment.
+    const RealtimeConfig& getRealtimeConfig() const noexcept { return _rtConfig; }
+
+    /// Batch renderer worker team, or nullptr when the serial renderer is used.
+    DspTeam* getDspTeam() noexcept { return _dspTeam.get(); }
+
+    /// Rendered quanta that were not consumed by the process() call that
+    /// rendered them. Always zero unless the batch length prediction is wrong.
+    juce::uint64 getBatchMispredictions() const noexcept { return _batchMispredictions; }
+
     int getDivisionCount() const noexcept { return _divisions.size(); }
     Division* getDivisionByIndex(int i) { return _divisions[i]; }
     Division* getDivisionByName(const juce::String& name);
@@ -395,6 +408,32 @@ private:
 
     bool processSubFrame();
 
+    //------------------------------------------------------
+    // Batch renderer (AEOLUS_DSP_WORKERS); see docs/MULTICORE.md.
+
+    struct BatchJob
+    {
+        Voice* first = nullptr;
+        int count = 0;
+        float* left = nullptr;
+        float* right = nullptr;
+        juce::uint64 alive = 0;     ///< Bit q set when a voice of the job sounds in quantum q.
+    };
+
+    /// Divisions handled by note on/off (layouts allow at most 10).
+    static constexpr int MaxNoteDivisions = 64;
+
+    static constexpr int MaxBatchQuanta = 32;
+    static constexpr int MaxBatchDivisions = 64;
+
+    void prepareBatchRenderer();
+    int countSubFramesNeeded(int numFrames) const;
+    void nextBatchedSubFrame(int numFrames);
+    void renderBatch(int numQuanta);
+    void buildBatchJobs(int groupSize);
+    static void runBatchJob(void* context, int jobIndex);
+    void reportRealtimeStatus();
+
     void processPendingNoteEvents();
     void prepareReverb();
 
@@ -419,6 +458,7 @@ private:
     RingBuffer<NoteEvent, 1024> _pendingNoteEvents;
     std::atomic<bool> _noteQueueOverflow { false };
 
+    RealtimeConfig _rtConfig;       ///< Must precede the voice pool.
     VoicePool _voicePool;           ///< All the voices.
 
     AudioParameterPool _params;     ///< Internal parameters.
@@ -458,6 +498,20 @@ private:
     std::atomic<int> _selectedIR;
 
     dsp::Interpolator _interpolator;
+
+    std::unique_ptr<DspTeam> _dspTeam;
+    std::vector<BatchJob> _batchJobs;           ///< Capacity reserved up front.
+    std::vector<int> _batchDivisionJobs;        ///< First job of each division, plus end.
+    std::vector<float> _batchGroupStorage;
+    float* _batchGroupBase = nullptr;
+    int _batchJobCapacity = 0;
+    int _batchQuantaInJob = 0;                  ///< Quanta in the batch being rendered.
+    juce::AudioBuffer<float> _batchOutput;
+    int _batchQuanta = 0;
+    int _batchNext = 0;
+    juce::uint64 _batchMispredictions = 0;
+    int _reportedAudioGeneration = 0;
+    bool _reportedWorkers = false;
 
     juce::MidiKeyboardState _midiKeyboardState;
 

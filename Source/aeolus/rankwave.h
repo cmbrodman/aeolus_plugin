@@ -84,6 +84,9 @@ public:
     bool doesNeedToBeRebuilt() const noexcept { return _needsToBeRebuilt.load(); }
 
     int getNote() const noexcept { return _note + _model.getNoteMin(); }
+
+    /// Number of quanta played in the Release state before the pipe is Over.
+    int getReleaseQuanta() const noexcept { return _releaseLength; }
     float getFreqency() const noexcept { return _freq; }
     float getPipeFrequency() const noexcept;
 
@@ -92,7 +95,13 @@ public:
     State trigger();
     void release(Pipewave::State& state);
 
+    /// Render one quantum, drawing pipe instability from the process-wide
+    /// shared generator (original behaviour).
     void play(State& state, float* out);
+
+    /// Render one quantum, drawing pipe instability from the supplied
+    /// generator, which must not be used concurrently by another thread.
+    void play(State& state, float* out, juce::Random& rnd);
 
 private:
     void genwave();

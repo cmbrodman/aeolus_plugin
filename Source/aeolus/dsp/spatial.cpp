@@ -38,6 +38,11 @@ SpatialSource::SpatialSource()
     , _filterSpec{}
     , _filterState{}
 {
+    // Reserve enough history for distant sources (about 30 m at 44.1 kHz,
+    // including the default organ's 32' pedal pipes) so that recalculate(),
+    // which runs when a voice is triggered on the audio thread, does not
+    // reallocate. Larger geometries still resize as before.
+    reserveDelay();
     recalculate();
 }
 

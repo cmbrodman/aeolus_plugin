@@ -19,6 +19,8 @@
 
 #include "aeolus/engine.h"
 #include <vector>
+#include <cstdint>
+#include <cstring>
 
 using namespace juce;
 
@@ -526,7 +528,8 @@ JUCE_IMPLEMENT_SINGLETON(EngineGlobal)
 
 Engine::Engine()
     : _sampleRate{SAMPLE_RATE_F}
-    , _voicePool(*this)
+    , _rtConfig{RealtimeConfig::fromEnvironment()}
+    , _voicePool(*this, _rtConfig.maxVoices)
     , _params{NUM_PARAMS}
     , _divisions{}
     , _sequencer{}
@@ -544,6 +547,9 @@ Engine::Engine()
     , _midiControlChannelsMask{ (1 << 16) - 1 }
     , _midiSwellChannelsMask{ (1 << 16) - 1 }
 {
+    _voicePool.setPerVoiceRandom(_rtConfig.perVoiceRandom);
+    prepareBatchRenderer();
+
    populateDivisions();
 
     // Sequencer can be created only after the divisions have been populated.
@@ -559,6 +565,49 @@ Engine::~Engine()
     // callback already in flight, then unregister before destroying members.
     const MessageManagerLock messageLock;
     stopTimer();
+
+    if (_dspTeam != nullptr) {
+        const auto stats = _dspTeam->getStats();
+
+        if (stats.batches > 0) {
+            String text;
+            text << "Aeolus batch renderer: " << (int64) stats.batches << " batches, "
+                 << (int64) stats.jobs << " jobs ("
+                 << String(stats.jobs > 0 ? 100.0 * double(stats.jobsByWorkers) / double(stats.jobs) : 0.0, 1)
+                 << "% on workers), waited for workers in " << (int64) stats.waits << " batches, mean "
+                 << String(stats.waits > 0 ? double(stats.waitNanosTotal) / double(stats.waits) / 1000.0 : 0.0, 1)
+                 << " us, max " << String(double(stats.waitNanosMax) / 1000.0, 1) << " us";
+            Logger::writeToLog(text);
+        }
+    }
+}
+
+void Engine::reportRealtimeStatus()
+{
+    // Audio and worker threads publish their scheduling results; report them
+    // here on the message thread.
+    auto& report = rt::audioThreadReport();
+    const int generation = report.generation.load(std::memory_order_acquire);
+
+    if (generation != _reportedAudioGeneration) {
+        _reportedAudioGeneration = generation;
+        rt::ThreadPolicyStatus status;
+        status.priorityError = report.priorityError.load(std::memory_order_relaxed);
+        status.affinityError = report.affinityError.load(std::memory_order_relaxed);
+        Logger::writeToLog("Aeolus audio thread: " + rt::describe(status, _rtConfig.audioPriority, _rtConfig.audioCpus));
+    }
+
+    if (_dspTeam != nullptr && !_reportedWorkers && _dspTeam->haveAllWorkersStarted()) {
+        _reportedWorkers = true;
+        String text;
+        text << "Aeolus batch renderer: " << _dspTeam->getNumWorkers() << " workers, group size "
+             << _rtConfig.dspGroupSize << ", voice pool " << _voicePool.getMaxVoices();
+
+        if (_dspTeam->getNumWorkers() > 0)
+            text << "; " << _dspTeam->describeWorkers();
+
+        Logger::writeToLog(text);
+    }
 }
 
 void Engine::prepareToPlay(float sampleRate, int frameSize)
@@ -584,6 +633,12 @@ void Engine::prepareToPlay(float sampleRate, int frameSize)
 
     _interpolator.setRatio(SAMPLE_RATE_F / sampleRate); // 44100 / sampleRate
     _interpolator.reset();
+
+    // Discard quanta rendered for the previous stream and restart the
+    // per-voice noise seed sequence so that renders are repeatable.
+    _batchQuanta = 0;
+    _batchNext = 0;
+    _voicePool.restartRandomSequence();
 
     _sampleRate = sampleRate;
 
@@ -685,10 +740,20 @@ void Engine::process(float* outL, float* outR, int numFrames, bool isNonRealtime
 
         if (_remainedSamples == 0 && numFrames > 0)
         {
-            processSubFrame();
+            if (_dspTeam != nullptr)
+                nextBatchedSubFrame(numFrames);
+            else
+                processSubFrame();
+
             jassert(_remainedSamples > 0);
         }
     }
+
+    // Every rendered quantum should have been consumed: the batch length is
+    // predicted exactly. Leftovers would be played by the next call, after
+    // its MIDI events, so count them for the tests.
+    if (_batchNext < _batchQuanta)
+        _batchMispredictions += juce::uint64(_batchQuanta - _batchNext);
 
     _reverb.process(origOutL, origOutR, origNumFrames, isNonRealtime);
 
@@ -932,8 +997,10 @@ void Engine::noteOn(int note, int midiChannel)
     if (g->shouldMTSFilterNote(note, midiChannel))
         return;
 
-    const int nDiv = getDivisionCount();
-    std::vector<char> skipLocal((size_t)nDiv, 0);
+    // Fixed storage: this runs on the audio thread for every note event.
+    const int nDiv = jmin(getDivisionCount(), (int) MaxNoteDivisions);
+    jassert(nDiv == getDivisionCount());
+    std::array<char, MaxNoteDivisions> skipLocal{};
 
     for (int i = 0; i < nDiv; ++i)
     {
@@ -989,8 +1056,10 @@ void Engine::noteOff(int note, int midiChannel)
 {
     clearDivisionsTriggerFlag();
 
-    const int nDiv = getDivisionCount();
-    std::vector<char> skipLocal((size_t)nDiv, 0);
+    // Fixed storage: this runs on the audio thread for every note event.
+    const int nDiv = jmin(getDivisionCount(), (int) MaxNoteDivisions);
+    jassert(nDiv == getDivisionCount());
+    std::array<char, MaxNoteDivisions> skipLocal{};
 
     for (int i = 0; i < nDiv; ++i)
     {
@@ -1233,6 +1302,8 @@ void Engine::timerCallback()
 {
     // Audio/MIDI code only sets a flag. Timer lifetime is tied to the engine;
     // no queued lambda can dereference an engine after destruction.
+    reportRealtimeStatus();
+
     {
         const std::lock_guard<std::mutex> preparationLock(_reverbPreparationMutex);
         prepareReverb();
@@ -1665,6 +1736,265 @@ bool Engine::processSubFrame()
     _remainedSamples = SUB_FRAME_LENGTH;
 
     return wasAudioGenerated;
+}
+
+//==============================================================================
+// Batch renderer
+//
+// Renders several 64-sample quanta at once. Division control steps (keys,
+// releases, triggers) still run serially for every quantum, in the original
+// order, before any audio is rendered: releases are scheduled for their
+// quantum and new voices start at theirs. Voices are then rendered whole for
+// the batch, in groups of consecutive voices of one division, by the audio
+// thread and the DSP team. Group outputs are summed in a fixed order and
+// division modulation runs serially per quantum. Finished voices return to
+// the pool at the end of the batch. See docs/MULTICORE.md for the exact
+// differences from the serial renderer.
+
+void Engine::prepareBatchRenderer()
+{
+    if (!_rtConfig.isBatchRendering())
+        return;
+
+    const int groupSize = _rtConfig.dspGroupSize;
+    _batchJobCapacity = (_rtConfig.maxVoices + groupSize - 1) / groupSize + MaxBatchDivisions;
+    _batchJobs.reserve((size_t) _batchJobCapacity);
+    _batchDivisionJobs.reserve(MaxBatchDivisions + 1);
+
+    constexpr size_t stride = MaxBatchQuanta * SUB_FRAME_LENGTH;
+    constexpr size_t alignFloats = 16; // 64 bytes
+    _batchGroupStorage.assign((size_t) _batchJobCapacity * 2 * stride + alignFloats, 0.0f);
+
+    auto address = reinterpret_cast<std::uintptr_t>(_batchGroupStorage.data());
+    address = (address + 63) & ~std::uintptr_t(63);
+    _batchGroupBase = reinterpret_cast<float*>(address);
+
+    _batchOutput.setSize(N_OUTPUT_CHANNELS, (int) stride);
+    _batchOutput.clear();
+
+    _dspTeam = std::make_unique<DspTeam>(_rtConfig.dspWorkers, _rtConfig.workerCpus,
+                                         _rtConfig.audioPriority, &Engine::runBatchJob, this);
+}
+
+int Engine::countSubFramesNeeded(int numFrames) const
+{
+    // Mirror the consumption loop in process(), starting at a quantum
+    // boundary, using the interpolator's exact arithmetic.
+    const float ratio = _interpolator.getRatio();
+    float fraction = _interpolator.getFraction();
+    int remained = 0;
+    int count = 0;
+
+    while (numFrames > 0) {
+        if (remained > 0) {
+            while (remained > 0 && fraction >= 1.0f) {
+                fraction -= 1.0f;
+                --remained;
+            }
+
+            while (numFrames > 0 && fraction < 1.0f) {
+                fraction += ratio;
+                --numFrames;
+            }
+        }
+
+        if (remained == 0 && numFrames > 0) {
+            ++count;
+            remained = SUB_FRAME_LENGTH;
+        }
+    }
+
+    return count;
+}
+
+void Engine::nextBatchedSubFrame(int numFrames)
+{
+    if (_batchNext >= _batchQuanta) {
+        // No events can arrive before this call returns, so a long request
+        // may safely be split into several batches.
+        renderBatch(jlimit(1, jmin((int) MaxBatchQuanta, _rtConfig.maxBatchQuanta), countSubFramesNeeded(numFrames)));
+    }
+
+    for (int ch = 0; ch < _subFrameBuffer.getNumChannels(); ++ch)
+        FloatVectorOperations::copy(_subFrameBuffer.getWritePointer(ch),
+                                    _batchOutput.getReadPointer(ch, _batchNext * SUB_FRAME_LENGTH),
+                                    SUB_FRAME_LENGTH);
+
+    ++_batchNext;
+    _remainedSamples = SUB_FRAME_LENGTH;
+}
+
+void Engine::buildBatchJobs(int groupSize)
+{
+    constexpr size_t stride = MaxBatchQuanta * SUB_FRAME_LENGTH;
+
+    for (;;) {
+        _batchJobs.clear();
+        _batchDivisionJobs.clear();
+        bool overflow = false;
+
+        for (auto* division : _divisions) {
+            _batchDivisionJobs.push_back((int) _batchJobs.size());
+            auto* voice = division->getActiveVoices().first();
+
+            while (voice != nullptr && !overflow) {
+                if ((int) _batchJobs.size() >= _batchJobCapacity) {
+                    overflow = true;
+                    break;
+                }
+
+                BatchJob job;
+                job.first = voice;
+                job.left = _batchGroupBase + _batchJobs.size() * 2 * stride;
+                job.right = job.left + stride;
+
+                while (voice != nullptr && job.count < groupSize) {
+                    ++job.count;
+                    voice = voice->next();
+                }
+
+                _batchJobs.push_back(job);
+            }
+        }
+
+        if (!overflow)
+            break;
+
+        // Only possible with far more divisions than configured layouts
+        // allow; larger groups always fit because capacity exceeds the
+        // division count.
+        jassertfalse;
+        groupSize *= 2;
+    }
+
+    _batchDivisionJobs.push_back((int) _batchJobs.size());
+}
+
+void Engine::runBatchJob(void* context, int jobIndex)
+{
+    auto& engine = *static_cast<Engine*>(context);
+    auto& job = engine._batchJobs[(size_t) jobIndex];
+    const int numQuanta = engine._batchQuantaInJob;
+    const size_t numSamples = (size_t) numQuanta * SUB_FRAME_LENGTH;
+
+    std::memset(job.left, 0, sizeof(float) * numSamples);
+    std::memset(job.right, 0, sizeof(float) * numSamples);
+
+    juce::uint64 alive = 0;
+    auto* voice = job.first;
+
+    for (int i = 0; i < job.count && voice != nullptr; ++i) {
+        auto* next = voice->next();
+        const int start = voice->getBatchStart();
+        const int end = voice->renderBatch(job.left, job.right, numQuanta);
+
+        if (end > start)
+            alive |= ((juce::uint64(1) << end) - 1) & ~((juce::uint64(1) << start) - 1);
+
+        voice = next;
+    }
+
+    job.alive = alive;
+}
+
+void Engine::renderBatch(int numQuanta)
+{
+    jassert(numQuanta > 0 && numQuanta <= MaxBatchQuanta);
+
+    _batchQuanta = 0;
+    _batchNext = 0;
+
+    if (_divisions.size() > MaxBatchDivisions) {
+        // Unsupported layout: render serially into the batch buffer.
+        jassertfalse;
+
+        for (int q = 0; q < numQuanta; ++q) {
+            processSubFrame();
+
+            for (int ch = 0; ch < _batchOutput.getNumChannels(); ++ch)
+                FloatVectorOperations::copy(_batchOutput.getWritePointer(ch, q * SUB_FRAME_LENGTH),
+                                            _subFrameBuffer.getReadPointer(ch), SUB_FRAME_LENGTH);
+        }
+
+        _batchQuanta = numQuanta;
+        return;
+    }
+
+    // A voice that finishes leaves its division's list in the serial renderer,
+    // which later control steps observe (a stop with no remaining voices for
+    // held keys is retriggered). End the batch at the first quantum in which
+    // any voice finishes, so finished voices are reclaimed at the same point.
+    for (auto* division : _divisions)
+        for (auto* voice = division->getActiveVoices().first(); voice != nullptr; voice = voice->next())
+            numQuanta = jmin(numQuanta, voice->predictFinishQuantum(numQuanta) + 1);
+
+    // Control steps for every quantum, in serial order. Releases scheduled
+    // here may shorten the batch further.
+    for (int q = 0; q < numQuanta; ++q)
+        for (auto* division : _divisions)
+            division->controlStep(q, &numQuanta);
+
+    // Render all voices for the whole batch.
+    buildBatchJobs(_rtConfig.dspGroupSize);
+    _batchQuantaInJob = numQuanta;
+    _dspTeam->run((int) _batchJobs.size());
+
+    // Mix and modulate each quantum, as processSubFrame() does.
+    for (int q = 0; q < numQuanta; ++q) {
+        generateTremulant();
+        _subFrameBuffer.clear();
+
+        for (int d = 0; d < _divisions.size(); ++d) {
+            auto* division = _divisions[d];
+            _divisionFrameBuffer.clear();
+            bool hasVoices = false;
+
+            for (int j = _batchDivisionJobs[(size_t) d]; j < _batchDivisionJobs[(size_t) d + 1]; ++j) {
+                const auto& job = _batchJobs[(size_t) j];
+
+                if (((job.alive >> q) & 1) == 0)
+                    continue;
+
+                hasVoices = true;
+                const size_t offset = (size_t) q * SUB_FRAME_LENGTH;
+                FloatVectorOperations::add(_divisionFrameBuffer.getWritePointer(0), job.left + offset, SUB_FRAME_LENGTH);
+                FloatVectorOperations::add(_divisionFrameBuffer.getWritePointer(1), job.right + offset, SUB_FRAME_LENGTH);
+            }
+
+            if (hasVoices) {
+                division->modulate(_divisionFrameBuffer, _tremulantBuffer);
+
+                for (int ch = 0; ch < _subFrameBuffer.getNumChannels(); ++ch)
+                    _subFrameBuffer.addFrom(ch, 0, _divisionFrameBuffer, ch, 0, SUB_FRAME_LENGTH);
+            }
+
+            division->volumeLevel().left.process(_divisionFrameBuffer, 0);
+            division->volumeLevel().right.process(_divisionFrameBuffer, 1);
+        }
+
+        for (int ch = 0; ch < _batchOutput.getNumChannels(); ++ch)
+            FloatVectorOperations::copy(_batchOutput.getWritePointer(ch, q * SUB_FRAME_LENGTH),
+                                        _subFrameBuffer.getReadPointer(ch), SUB_FRAME_LENGTH);
+    }
+
+    // Return finished voices to the pool.
+    for (auto* division : _divisions) {
+        auto& voices = division->getActiveVoices();
+        auto* voice = voices.first();
+
+        while (voice != nullptr) {
+            if (voice->isOver()) {
+                auto* next = voices.removeAndReturnNext(voice);
+                voice->resetAndReturnToPool();
+                voice = next;
+            } else {
+                voice->endBatch();
+                voice = voice->next();
+            }
+        }
+    }
+
+    _batchQuanta = numQuanta;
 }
 
 void Engine::processPendingNoteEvents()

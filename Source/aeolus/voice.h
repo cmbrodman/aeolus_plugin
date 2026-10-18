@@ -36,18 +36,27 @@ class Engine;
 
 /**
  * @brief Single voice associated with a single pipe.
+ *
+ * Cache-line aligned so that voices rendered on different threads never
+ * share a line.
  */
-class Voice : public ListItem<Voice>
+class alignas(64) Voice : public ListItem<Voice>
 {
 public:
     Voice() = delete;
     Voice(Engine& engine);
+
+    /// Preallocate storage used when triggering (call outside the audio thread).
+    void reserveStorage() { _spatialSource.reserveDelay(); }
 
     void trigger(const Pipewave::State& state);
     void release();
     void reset();
     void process(float* outL, float* outR);
     bool isOver() const noexcept;
+
+    /// True while the pipe is sounding and no release has been requested,
+    /// including a release scheduled for later in the current batch.
     bool isActive() const noexcept;
     bool isForNote(int note) const noexcept;
     int getNote() const;
@@ -58,6 +67,44 @@ public:
     void resetAndReturnToPool();
 
     float getPanPosition() const noexcept { return _panPosition; }
+
+    /// Draw pipe instability and chiff noise from this voice's own generators,
+    /// seeded deterministically. Otherwise the process-wide shared generators
+    /// are used (original behaviour).
+    void setRandomSeed(juce::int64 seed);
+    void useSharedRandom() noexcept { _ownRandom = false; }
+
+    //------------------------------------------------------
+    // Batch rendering (see Engine::renderBatch and docs/MULTICORE.md).
+
+    /// First quantum of the current batch in which the voice sounds.
+    void setBatchStart(int quantum) noexcept { _batchStart = quantum; }
+    int getBatchStart() const noexcept { return _batchStart; }
+
+    /// Release the voice immediately before rendering the given quantum.
+    void scheduleRelease(int quantum) noexcept { _releaseQuantum = quantum; }
+
+    /**
+     * Render quanta [getBatchStart(), numQuanta), adding the stereo output
+     * of quantum q to outL/outR + q * SUB_FRAME_LENGTH. Stops after the
+     * quantum in which the voice is over. Returns the end quantum (exclusive).
+     * Safe to call on a worker thread when the voice uses its own random
+     * generators; touches no state shared with other voices.
+     */
+    int renderBatch(float* outL, float* outR, int numQuanta);
+
+    /**
+     * Quantum of the current batch after which isOver() becomes true, or
+     * numQuanta if that does not happen before numQuanta. Derived from the
+     * envelope state and any scheduled release without rendering, mirroring
+     * Pipewave::play() and process(). The batch renderer ends a batch there,
+     * so that finished voices leave their division exactly when they would
+     * in the serial renderer.
+     */
+    int predictFinishQuantum(int numQuanta) const noexcept;
+
+    /// Clear per-batch scheduling.
+    void endBatch() noexcept { _batchStart = 0; _releaseQuantum = -1; }
 
 private:
     Engine& _engine;
@@ -84,6 +131,13 @@ private:
 
     /// Counter to account for the delayed sound before recycling the voice.
     size_t _postReleaseCounter;
+
+    bool _ownRandom{ false };
+    juce::Random _pipeRandom;
+    juce::Random _chiffRandom;
+
+    int _batchStart{ 0 };
+    int _releaseQuantum{ -1 };
 };
 
 //==============================================================================
@@ -102,6 +156,18 @@ public:
     void resetAndReturnToPool(Voice* voice);
 
     int getNumberOfActiveVoices() const noexcept { return _voiceCount; }
+    int getMaxVoices() const noexcept { return (int) _voices.size(); }
+
+    /// Seed each triggered voice's own noise generators from a deterministic
+    /// sequence instead of using the shared generators.
+    void setPerVoiceRandom(bool shouldUsePerVoiceRandom) noexcept { _perVoiceRandom = shouldUsePerVoiceRandom; }
+    bool isPerVoiceRandom() const noexcept { return _perVoiceRandom; }
+
+    /// Restart the deterministic seed sequence (audio thread or while stopped).
+    void restartRandomSequence() noexcept { _triggerSerial = 0; }
+
+    /// Voices triggered with per-voice noise since the sequence restarted.
+    juce::uint64 getTriggerCount() const noexcept { return _triggerSerial; }
 
 private:
 
@@ -110,6 +176,9 @@ private:
     std::vector<Voice> _voices;     ///< All the voices.
     List<Voice> _idleVoices;        ///< Voices available to be triggered.
     std::atomic<int> _voiceCount;   ///< Number of taken voices.
+
+    bool _perVoiceRandom{ false };
+    juce::uint64 _triggerSerial{ 0 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(VoicePool)
 };

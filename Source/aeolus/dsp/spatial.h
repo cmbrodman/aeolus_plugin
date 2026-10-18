@@ -64,6 +64,9 @@ public:
         }
     };
 
+    /// Delay history reserved up front, in samples.
+    constexpr static size_t ReservedDelayLength = 4096;
+
     SpatialSource();
 
     void reset();
@@ -71,6 +74,11 @@ public:
     void tick(float x, float& l, float& r);
 
     void process(float* in, float* outL, float* outR, int numFrames);
+
+    /// Reserve delay history so that recalculate() does not reallocate for
+    /// sources within ReservedDelayLength samples. Copies of a source do not
+    /// keep the reservation, so containers must call this after copying.
+    void reserveDelay() { _delayLine.reserve(ReservedDelayLength); }
 
     void setSampleRate(float sr) { _sampleRate = sr; }
     void setSourcePosition(float x, float y) noexcept { _sourcePosition = {x, y}; }

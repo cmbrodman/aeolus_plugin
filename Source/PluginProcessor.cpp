@@ -223,6 +223,10 @@ void AeolusAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
 {
     using namespace std::chrono;
 
+    // Opt-in real-time priority/affinity for the audio thread, applied once
+    // per thread (AEOLUS_AUDIO_RT_PRIORITY, AEOLUS_AUDIO_CPUS).
+    aeolus::rt::applyAudioThreadPolicy(_engine.getRealtimeConfig());
+
     auto timestampStart = steady_clock::now();
 
     juce::ScopedNoDenormals noDenormals;

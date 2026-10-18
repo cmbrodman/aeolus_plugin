@@ -36,7 +36,19 @@ public:
 
     DelayLine(size_t size = 1024);
     void resize(size_t size);
+    void reserve(size_t capacity) { _buffer.reserve(capacity); }
     void reset();
+
+    /**
+     * Reset the write position and clear only the slots that reads can reach
+     * before they are overwritten, given that no read index exceeds
+     * maxReadIndex (readNearest(d) uses index d; read(d) uses floor(d) and
+     * floor(d) + 1). Writes advance backwards from slot 0, so each slot past
+     * that prefix is written before any bounded read reaches it. Subsequent
+     * output is identical to a full reset(). A bound outside the buffer falls
+     * back to a full clear.
+     */
+    void resetForReadIndex(int maxReadIndex);
     void write(float x);
     float read(float delay) const;
     float readNearest(int delay) const;
@@ -48,6 +60,17 @@ private:
     size_t _writeIndex;
 };
 
+
+/**
+ * Whether voices clear their whole delay rings (original behaviour) instead
+ * of the readable prefix. Fixed by the AEOLUS_BOUNDED_VOICE_CLEAR build
+ * option; test builds may switch it at run time to compare both.
+ */
+bool useFullVoiceClear() noexcept;
+
+#if AEOLUS_TESTING
+void setFullVoiceClearForTesting(bool shouldUseFullClear) noexcept;
+#endif
 
 } // namespace dsp
 
