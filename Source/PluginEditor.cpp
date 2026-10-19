@@ -460,7 +460,9 @@ void AeolusAudioProcessorEditor::parentHierarchyChanged()
 
 void AeolusAudioProcessorEditor::resized()
 {
-    _overlay.setBounds(getLocalBounds());
+    constexpr int safetyHeight=28;
+    // Registration programming must never intercept the emergency controls.
+    _overlay.setBounds(getLocalBounds().withTrimmedBottom(safetyHeight));
 
     constexpr int margin = 5;
 
@@ -504,7 +506,6 @@ void AeolusAudioProcessorEditor::resized()
     constexpr int sequencerPadding = 6;
     constexpr int keyboardHeight = 70;
     const int kbH = _midiKeyboard.isVisible() ? keyboardHeight : 0;
-    constexpr int safetyHeight=28;
     const int bottomChrome = kbH + sequencerHeight + 2 * sequencerPadding + safetyHeight;
 
     int y = 0;

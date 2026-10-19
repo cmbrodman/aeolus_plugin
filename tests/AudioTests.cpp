@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Aeolus fork contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "PluginProcessor.h"
+#include "PluginEditor.h"
 #include "ui/SequencerView.h"
 #include "aeolus/simd.h"
 #include "aeolus/simd_neon.h"
@@ -694,6 +695,7 @@ void safetyFooterTests()
         AeolusAudioProcessor processor;
         std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
         editor->setSize(640,480);
+        editor->setVisible(true);
         juce::TextButton* panic=nullptr;juce::TextButton* resume=nullptr;
         juce::MidiKeyboardComponent* keyboard=nullptr;ui::SequencerView* sequencer=nullptr;
         for(auto* child:editor->getChildren()) {
@@ -709,6 +711,14 @@ void safetyFooterTests()
         check(sequencer->getBottom()<=panic->getY(),"sequencer overlaps safety footer");
         if(visible) check(keyboard->getBottom()<=panic->getY(),"keyboard overlaps Panic");
         check(!resume->isEnabled(),"Resume enabled before Panic acknowledgement");
+        auto* console=dynamic_cast<AeolusAudioProcessorEditor*>(editor.get());
+        check(console!=nullptr,"standalone console editor missing");
+        console->onSequencerEnterProgramMode();
+        check(editor->getComponentAt(panic->getBounds().getCentre())==panic,
+              "preset programming overlay blocks Panic");
+        panic->triggerClick();pump(20);
+        check(processor.getEngine().isEmergencyPanicPending(),"console Panic did not request emergency silence");
+        console->onSequencerLeaveProgramMode();
         // Bare Xvfb has no window manager and JUCE popup atoms are unavailable.
         // Enable this workflow on an authenticated desktop for native UI checks.
         if(!visible && std::getenv("AEOLUS_TEST_POPUP_WORKFLOW")) {

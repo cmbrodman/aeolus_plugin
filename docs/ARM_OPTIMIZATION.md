@@ -1350,9 +1350,9 @@ in [roadmap section 16](../AEOLUS_FEATURES.md#16-installer-setup-hardware-profil
 
 Current checks on October 18, 2026:
 
-- Linux x86-64: 2/2 CTest tests passed under Xvfb (9.13 seconds); 33 Python
-  tests passed with one FIFO-permission case skipped on this host.
-- Native VIM4 ARM64 Release/IPO: 2/2 CTest tests passed (23.15 seconds), including
+- Linux x86-64: 2/2 CTest tests passed under Xvfb (8.87 seconds after the footer follow-up);
+  33 Python tests passed with one FIFO-permission case skipped on this host.
+- Native VIM4 ARM64 Release/IPO: 2/2 CTest tests passed (28.14 seconds after the footer follow-up), including
   `AEOLUS_TEST_POPUP_WORKFLOW=1` on the authenticated desktop. All 33 Python
   tests passed, including the actual FIFO-demotion case.
 - An isolated test-enabled standalone automatically started its adjacent safety
@@ -1376,3 +1376,15 @@ reconnection are not established by this verification.
 Evidence: `build/profiles/production-integration-20261018/` (local) and the owned
 `production-integration-20261018` directory in the VIM4 lab. Private desktop
 credentials and normal organ/settings files are not included in USB packages.
+
+The safety footer also remains outside the registration-programming overlay.
+Its regression checks hit-test Panic with the keyboard shown/hidden and confirm
+that a button click requests emergency silence while programming presets.
+
+Production executables were built separately with `AEOLUS_BUILD_TESTS=OFF` and
+`AEOLUS_PROFILE_BUILD=OFF`: x86-64 on Debian 13 and ARM64 natively on the VIM4's
+Ubuntu 24.04.3 LTS/glibc 2.39, with Release IPO enabled for ARM. ELF architecture,
+resolved runtime libraries and absence of test preference/reset hooks were
+checked. All 114 tracked ARM source/build/helper inputs match the local checkout.
+The independent recovery/device checks above used the isolated test-enabled copy;
+these production files do not replace the normal VIM4 installation automatically.
