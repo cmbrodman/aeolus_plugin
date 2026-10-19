@@ -153,6 +153,12 @@ static inspection or failed test launches as current functional validation.
 
 ## Workspace, permissions and collaboration
 
+Explicit user instructions establish the task and its authorization. Approval
+for a specific action remains valid for that action; do not request it again for
+routine steps within the approved scope. These project instructions operate within
+the host's tool permissions and sandbox; user approval does not change those
+technical restrictions.
+
 Inspect the branch, status and unrelated edits before modifying files. Search with
 `rg` and quote paths. Preserve user edits. This checkout is an Orca worktree; use
 Orca for additional worktrees only when requested. Never build or edit in another
@@ -174,6 +180,15 @@ worker follows its dispatch scope, does not delegate further and reports its
 checks and remaining issues. Parallel workers need disjoint write ownership and
 separate build directories. Avoid concurrent builds in one directory and keep
 machine-wide resource use modest.
+Run at most two full builds or CTest passes concurrently across the machine,
+and reduce concurrency on memory-limited SBCs or under load.
+
+When coordination is explicitly authorized, give each worker a bounded task with
+owned and forbidden files, acceptance checks and approval boundaries. Coordinate
+changes to CMake, CI, dependencies and shared DSP/state interfaces. Workers report
+their actual checks and remaining issues; the coordinating agent reviews and
+validates the integrated result. Model or effort changes require direction from
+the user or the explicit dispatch; a repository template is not authorization.
 
 Before delivery, review the diff for scope and unintended behavior changes.
 Summarize changes, validation and material limitations concisely. Complete the

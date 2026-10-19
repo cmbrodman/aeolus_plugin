@@ -6,6 +6,11 @@
 [README.md](README.md) and [AEOLUS_FEATURES.md](AEOLUS_FEATURES.md) before work.
 This file adds Claude-specific instructions only.
 
+Keep common permissions, build limits and collaboration policy in `AGENTS.md`;
+do not create a second, conflicting policy here. An Orca dispatch's task and
+lifecycle commands apply only to that dispatched task; a normal user-owned
+session does not emit worker lifecycle messages.
+
 - Follow the role and scope in the current user request or Orca dispatch. Work
   solo unless delegation or coordination is explicitly requested. Dispatched
   workers must not start further agents.
