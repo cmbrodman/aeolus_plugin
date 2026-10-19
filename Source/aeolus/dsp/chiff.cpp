@@ -85,7 +85,14 @@ void Chiff::trigger()
 
     _envelope.trigger(_envelopeTrigger);
 
-    _pipeResonator.reset();
+    // The resonator is only read at floor(_pipeDelay) and the following
+    // sample, and the delay is fixed for the life of the voice. Clearing that
+    // prefix is equivalent to a full clear (see DelayLine::resetForReadIndex)
+    // and avoids clearing 44,100 floats on every note-on.
+    if (!useFullVoiceClear() && _pipeDelay >= 0.0f && _pipeDelay < float(_pipeResonator.size()))
+        _pipeResonator.resetForReadIndex(int(std::floor(_pipeDelay)) + 1);
+    else
+        _pipeResonator.reset();
     BiquadFilter::updateSpec(_lpSpec);
     BiquadFilter::resetState(_lpSpec, _lpState);
 }
@@ -105,7 +112,11 @@ bool Chiff::isActive() const noexcept
 void Chiff::process(float* out, int numFrames)
 {
     static Random rnd;
+    process(out, numFrames, rnd);
+}
 
+void Chiff::process(float* out, int numFrames, Random& rnd)
+{
     if (!isActive())
         return;
 

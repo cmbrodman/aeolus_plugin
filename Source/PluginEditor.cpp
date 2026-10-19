@@ -188,9 +188,11 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
         menu.addItem(4, "Stop Editor");
         menu.addItem(5, "Coupler Editor");
 
+        Component::SafePointer<AeolusAudioProcessorEditor> menuOwner(this);
         menu.showMenuAsync(PopupMenu::Options().withTargetComponent(_settingsButton),
-            [this](int result)
+            [this,menuOwner](int result)
             {
+                if(menuOwner==nullptr) return;
                 if (result == 1)
                 {
                     auto content = std::make_unique<ui::SettingsComponent>();
@@ -241,19 +243,22 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
                         const auto names = contentPtr->getNames();
                         box.dismiss();
 
-                        juce::MessageManager::callAsync([this, count, names] {
-                            _audioProcessor.suspendProcessing(true);
+                        Component::SafePointer<AeolusAudioProcessorEditor> editor(this);
+                        juce::MessageManager::callAsync([editor, count, names] {
+                            if(editor==nullptr) return;
+                            auto* self=editor.getComponent();
+                            self->_audioProcessor.suspendForEdit(true);
 
-                            _divisionViews.clear();
-                            _divisionsComponent.removeAllChildren();
+                            self->_divisionViews.clear();
+                            self->_divisionsComponent.removeAllChildren();
 
-                            _audioProcessor.getEngine().applyDivisionLayout(count, names);
-                            _audioProcessor.getParametersContainer().rebindDivisionGains();
+                            self->_audioProcessor.getEngine().applyDivisionLayout(count, names);
+                            self->_audioProcessor.getParametersContainer().rebindDivisionGains();
 
-                            populateDivisions();
-                            resized();
+                            self->populateDivisions();
+                            self->resized();
 
-                            _audioProcessor.suspendProcessing(false);
+                            self->_audioProcessor.suspendForEdit(false);
                         });
                     };
                 }
@@ -286,14 +291,14 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
                                                 if (safeEd == nullptr)
                                                     return;
                                                 auto* self = safeEd.getComponent();
-                                                self->_audioProcessor.suspendProcessing(true);
+                                                self->_audioProcessor.suspendForEdit(true);
                                                 self->_divisionViews.clear();
                                                 self->_divisionsComponent.removeAllChildren();
                                                 self->_audioProcessor.getEngine().applyDivisionStopsList(edits);
                                                 self->_audioProcessor.getParametersContainer().rebindDivisionGains();
                                                 self->populateDivisions();
                                                 self->resized();
-                                                self->_audioProcessor.suspendProcessing(false);
+                                                self->_audioProcessor.suspendForEdit(false);
                                             });
                                         };
                 }
@@ -327,14 +332,14 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
                                                 if (safeEd == nullptr)
                                                     return;
                                                 auto* self = safeEd.getComponent();
-                                                self->_audioProcessor.suspendProcessing(true);
+                                                self->_audioProcessor.suspendForEdit(true);
                                                 self->_divisionViews.clear();
                                                 self->_divisionsComponent.removeAllChildren();
                                                 self->_audioProcessor.getEngine().applyCouplerLayouts(edits);
                                                 self->_audioProcessor.getParametersContainer().rebindDivisionGains();
                                                 self->populateDivisions();
                                                 self->resized();
-                                                self->_audioProcessor.suspendProcessing(false);
+                                                self->_audioProcessor.suspendForEdit(false);
                                             });
                                         };
                 }
@@ -376,6 +381,13 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
     };
 
     addAndMakeVisible(_cancelButton);
+    addAndMakeVisible(_safetyButton);
+    addAndMakeVisible(_safetyStatus);
+    _safetyButton.setColour(TextButton::buttonColourId,Colours::darkred);
+    _safetyButton.onClick=[this] { _audioProcessor.panic(); };
+    addAndMakeVisible(_resumeButton);
+    _resumeButton.setEnabled(false);
+    _resumeButton.onClick=[this] { _audioProcessor.resumeAudio(); };
 
     addAndMakeVisible(_divisionsViewport);
     _divisionsViewport.setViewedComponent(&_divisionsComponent, false /* don't delete */);
@@ -483,13 +495,17 @@ void AeolusAudioProcessorEditor::resized()
 
     _mtsConnectedLabel.setBounds(_settingsButton.getRight() + 40, margin, 160, 20);
     _mtsDisconnectedLabel.setBounds(_mtsConnectedLabel.getBounds());
+    _safetyButton.setBounds(margin,getHeight()-26,110,22);
+    _resumeButton.setBounds(_safetyButton.getRight()+5,getHeight()-26,110,22);
+    _safetyStatus.setBounds(_resumeButton.getRight()+5,getHeight()-26,240,22);
 
         constexpr int T = margin * 2 + 20;
     constexpr int sequencerHeight = 26;
     constexpr int sequencerPadding = 6;
     constexpr int keyboardHeight = 70;
     const int kbH = _midiKeyboard.isVisible() ? keyboardHeight : 0;
-    const int bottomChrome = kbH + sequencerHeight + 2 * sequencerPadding;
+    constexpr int safetyHeight=28;
+    const int bottomChrome = kbH + sequencerHeight + 2 * sequencerPadding + safetyHeight;
 
     int y = 0;
 
@@ -506,7 +522,7 @@ void AeolusAudioProcessorEditor::resized()
     {
         int keyboardWidth = jmin((int)_midiKeyboard.getTotalKeyboardWidth(), getWidth());
         _midiKeyboard.setBounds((getWidth() - keyboardWidth) / 2,
-                                getHeight() - keyboardHeight,
+                                getHeight() - keyboardHeight - safetyHeight,
                                 keyboardWidth,
                                 keyboardHeight);
         _sequencerView.setBounds(_sequencerView.getX(),
@@ -520,7 +536,7 @@ void AeolusAudioProcessorEditor::resized()
 
     const int sequencerY = (kbH > 0)
         ? _midiKeyboard.getY() - sequencerHeight - sequencerPadding
-        : getHeight() - sequencerHeight - sequencerPadding;
+        : getHeight() - sequencerHeight - sequencerPadding - safetyHeight;
 
     _sequencerView.setBounds(sequencerX, sequencerY, sequencerWidth, sequencerHeight);
 
@@ -538,6 +554,12 @@ void AeolusAudioProcessorEditor::resized()
 
 void AeolusAudioProcessorEditor::timerCallback()
 {
+    const auto& safety=_audioProcessor.getEngine();
+    const bool supervised=safety.hasSafetyWatchdog();
+    _safetyStatus.setText(safety.isEmergencyPanicPending()?"Silencing...":supervised?"Independent watchdog active":safety.safetyWatchdogStarting()?"Watchdog waiting for audio":"Local Panic / Resume",dontSendNotification);
+    _safetyStatus.setColour(Label::textColourId,supervised?Colours::lightgreen:Colours::orange);
+    _resumeButton.setEnabled(safety.isEmergencyMuted() && !safety.isEmergencyPanicPending());
+    _safetyButton.setTooltip(safety.hasSafetyWatchdog()?"Independent watchdog active. Panic silences all notes; Resume restarts audio.":"Independent watchdog unavailable. Panic requests audio silence; Resume restarts audio.");
     refresh();
 }
 

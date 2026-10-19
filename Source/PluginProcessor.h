@@ -40,7 +40,9 @@ public:
 
     Parameters& getParametersContainer() noexcept { return _parameters; }
 
-    void panic() noexcept { _panicRequest = true; }
+    void panic() noexcept { _engine.requestEmergencyPanic(); }
+    void resumeAudio();
+    void suspendForEdit(bool suspended);
 
     //==============================================================================
     // aeolus::EngineGlobal::ProcessorProxy
@@ -105,7 +107,7 @@ private:
     Parameters _parameters;
 
     std::atomic<float> _processLoad;
-    std::atomic<bool> _panicRequest;
+    unsigned _stateBeforeEdit = 0;
     std::unique_ptr<aeolus::CallbackProfiler> _callbackProfiler;
 
     //==============================================================================

@@ -1,10 +1,17 @@
 // Copyright (C) 2026 Aeolus fork contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "PluginProcessor.h"
+#include "ui/SequencerView.h"
 #include "aeolus/simd.h"
 #include "aeolus/simd_neon.h"
 #include "aeolus/dsp/spatial.h"
+#include "aeolus/dsp/delay.h"
+#include <algorithm>
+#include <atomic>
+#include <iomanip>
+#include <limits>
 #include <iostream>
+#include <map>
 #include <chrono>
 #include <stdexcept>
 #include <thread>
@@ -20,6 +27,9 @@ void fft_step(float*, const float*, size_t);
 namespace {
 thread_local bool countHeap = false;
 thread_local size_t heapOperations = 0;
+// Counts heap operations on every thread (DSP workers included).
+std::atomic<bool> countAllHeap { false };
+std::atomic<size_t> allHeapOperations { 0 };
 void check(bool ok, const char* message)
 {
     if (!ok) throw std::runtime_error(message);
@@ -28,6 +38,8 @@ void pump(int milliseconds)
 {
     juce::MessageManager::getInstance()->runDispatchLoopUntil(milliseconds);
 }
+#include "CallbackProfilerTests.h"
+
 void queueTests()
 {
     aeolus::RingBuffer<int, 7> q;
@@ -131,18 +143,24 @@ void profilerTests()
     const auto file = aeolus::getTestDataDirectory().getChildFile("callback-profile-test.csv");
     file.deleteFile();
     auto profiler = aeolus::CallbackProfiler::create(file.getFullPathName());
-    check(profiler != nullptr, "profiler could not open fresh test CSV");
-    check(aeolus::CallbackProfiler::create(file.getFullPathName()) == nullptr, "profiler overwrote existing file");
+    check(profiler != nullptr, "profiler could not start for fresh test CSV");
     heapOperations = 0; countHeap = true;
-    for (int i = 0; i < 5000; ++i)
-        profiler->record(i*12000000LL, i == 0 ? 12000000 : 9000000, 44100, 512, 399, i/1000);
+    profiler->record(0,12000000,44100,512,399,0);
     countHeap = false;
     check(heapOperations == 0, "profiling allocated/freed on audio producer");
     profiler.reset();
-    const auto text = file.loadFileAsString();
-    check(text.contains("sequence,start_ns,duration_ns") && text.contains("# dropped_total=905"),
-          "profiler did not report bounded queue overflow");
+    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(3);
+    juce::String text;
+    do {
+        text=file.loadFileAsString();
+        if (text.contains("# dropped_total=")) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    } while (std::chrono::steady_clock::now()<deadline);
+    check(text.contains("sequence,start_ns,duration_ns") && text.contains("# dropped_total=0"),
+          "profiler did not finish its background CSV");
     check(text.contains("0,0,12000000,44100.000,512,399,0"), "profiler sample data changed");
+    check(aeolus::CallbackProfiler::create(file.getFullPathName()) == nullptr, "profiler accepted an existing file");
+    check(file.loadFileAsString()==text, "profiler overwrote an existing file");
 }
 void spatialTests()
 {
@@ -397,16 +415,617 @@ void lifetimeTests()
     }
     pump(400); // old raw-this callbacks would execute after destruction here
 }
+void delayBoundedResetTests()
+{
+    // resetForReadIndex() must be indistinguishable from reset() for every
+    // access pattern the voices use, starting from arbitrary (even NaN) history.
+    for (size_t size : {size_t(5), size_t(97), size_t(128), size_t(4096)}) {
+        for (int pattern = 0; pattern < 2; ++pattern) {
+            for (float delay : {0.0f, 0.5f, 1.0f, 3.0f, 63.0f, 64.0f, 64.75f, 95.0f, 96.0f, 127.0f, 1349.3f, 2697.9f, 4094.0f, 4095.0f}) {
+                aeolus::dsp::DelayLine full(size), bounded(size);
+                uint32_t random = 7u + uint32_t(size) + uint32_t(delay * 4);
+                for (size_t i = 0; i < 3 * size + 11; ++i) {
+                    random = random * 1664525u + 1013904223u;
+                    const float dirty = (random & 15) == 0 ? std::numeric_limits<float>::quiet_NaN() : float(random >> 8);
+                    full.write(dirty);
+                    bounded.write(dirty);
+                }
+                full.reset();
+                // Chiff reads floor(delay) and the next slot; voice/spatial delays read the index itself.
+                const int bound = pattern == 0 ? int(delay) + 1 : int(delay);
+                bounded.resetForReadIndex(bound);
+                for (size_t i = 0; i < 3 * size + 5; ++i) {
+                    random = random * 1664525u + 1013904223u;
+                    const float input = float(int(random >> 8) - 8388608) / 8388608.0f;
+                    float a, b;
+                    if (pattern == 0) {
+                        // Chiff: read before write, with feedback.
+                        a = full.read(delay);
+                        b = bounded.read(delay);
+                        full.write(0.5f * a + input);
+                        bounded.write(0.5f * b + input);
+                    } else {
+                        // Pipe delay / spatial: write then nearest read.
+                        full.write(input);
+                        bounded.write(input);
+                        a = full.readNearest(int(delay));
+                        b = bounded.readNearest(int(delay));
+                    }
+                    check(std::isfinite(a) && a == b, "bounded delay reset changed output");
+                }
+            }
+        }
+    }
+}
+
+//==============================================================================
+// Batch renderer
+
+void setEnvironment(const char* key, const char* value)
+{
+#ifdef _WIN32
+    _putenv_s(key, value == nullptr ? "" : value); // An empty value removes the variable.
+#else
+    if (value == nullptr) unsetenv(key); else setenv(key, value, 1);
+#endif
+}
+
+struct ScopedEnvironment
+{
+    explicit ScopedEnvironment(const std::map<std::string, std::string>& values)
+    {
+        for (const char* key : keys)
+            setEnvironment(key, nullptr);
+        for (const auto& [key, value] : values)
+            setEnvironment(key.c_str(), value.c_str());
+    }
+    ~ScopedEnvironment()
+    {
+        for (const char* key : keys)
+            setEnvironment(key, nullptr);
+    }
+    static constexpr const char* keys[] = {
+        "AEOLUS_DSP_WORKERS", "AEOLUS_DSP_GROUP_SIZE", "AEOLUS_PER_VOICE_RANDOM",
+        "AEOLUS_MAX_VOICES", "AEOLUS_DSP_WORKER_CPUS", "AEOLUS_DSP_BATCH_QUANTA", "AEOLUS_AUDIO_RT_PRIORITY", "AEOLUS_AUDIO_CPUS"
+    };
+};
+
+struct RenderResult
+{
+    std::vector<float> left, right;
+    juce::uint64 mispredictions = 0;
+    int peakVoices = 0;
+    int finalVoices = 0;
+    int poolSize = 0;
+    juce::uint64 triggers = 0;
+    size_t heapOperations = 0;
+    aeolus::DspTeam::Stats stats;
+};
+
+struct ScriptEvent
+{
+    double seconds;
+    bool on;
+    int channel;
+    int note;
+};
+
+// Couplers from later divisions (II -> III, I -> II/III, Pedal -> manuals)
+// exercise control changes that take effect one quantum into a batch.
+RenderResult renderScript(const std::map<std::string, std::string>& environment, float rate, bool allStops)
+{
+    ScopedEnvironment scoped(environment);
+    RenderResult result;
+
+    AeolusAudioProcessor processor;
+    processor.setNonRealtime(true);
+    auto& engine = processor.getEngine();
+    result.poolSize = engine.getVoicePool().getMaxVoices();
+
+    for (int d = 0; d < engine.getDivisionCount(); ++d) {
+        auto* division = engine.getDivisionByIndex(d);
+        division->setMIDIChannelsMask(1 << d);
+        for (int s = 0; s < division->getStopsCount(); ++s)
+            division->enableStop(s, allStops || (s % 3) == d % 3);
+        for (int l = 0; l < division->getLinksCount(); ++l)
+            division->enableLink(l, true);
+        if (division->hasTremulant())
+            division->setTremulantEnabled(true);
+    }
+
+    const std::vector<ScriptEvent> script = {
+        {0.010, true, 2, 60}, {0.010, true, 2, 64}, {0.010, true, 2, 67},
+        {0.020, true, 4, 36},
+        {0.200, true, 3, 48}, {0.2001, true, 3, 55},
+        {0.350, false, 2, 64}, {0.35002, true, 2, 64},
+        {0.500, true, 1, 72}, {0.50001, false, 1, 72},
+        {0.650, true, 1, 79},
+        {0.900, false, 3, 48}, {0.900, false, 3, 55},
+        {1.100, false, 2, 60}, {1.100, false, 2, 64}, {1.100, false, 2, 67},
+        {1.150, false, 4, 36}, {1.300, false, 1, 79},
+    };
+
+    // Each prepareToPlay() switches every rank to its other pipe set, and the
+    // two sets are generated with independent random detuning. Preparing
+    // twice returns to the same set, so all renders use identical pipes.
+    processor.prepareToPlay(rate, 1024);
+    processor.prepareToPlay(rate, 1024);
+    processor.getParametersContainer().reverbWet->setValueNotifyingHost(0);
+
+    if (auto* team = engine.getDspTeam()) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (!team->haveAllWorkersStarted() && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        check(team->haveAllWorkersStarted(), "DSP workers did not start");
+    }
+
+    // JUCE's MidiKeyboardState grows its listener bookkeeping on first use.
+    // Warm it up on channel 16, which no division listens to here.
+    engine.getMidiKeyboardState().noteOn(16, 60, 1.0f);
+    engine.getMidiKeyboardState().noteOff(16, 60, 0.0f);
+
+    const int blockSizes[] = { 512, 333, 1024, 64, 7, 480, 1, 1000 };
+    const int64_t totalSamples = int64_t(rate * 3.2);
+    juce::AudioBuffer<float> audio(aeolus::N_OUTPUT_CHANNELS, 1024);
+    juce::MidiBuffer midi;
+    size_t nextEvent = 0;
+    int block = 0;
+
+    for (int64_t position = 0; position < totalSamples; ++block) {
+        const int frames = (int) std::min<int64_t>(blockSizes[block % 8], totalSamples - position);
+        midi.clear();
+        while (nextEvent < script.size() && int64_t(script[nextEvent].seconds * rate) < position + frames) {
+            const auto& e = script[nextEvent++];
+            const int offset = (int) std::max<int64_t>(0, int64_t(e.seconds * rate) - position);
+            midi.addEvent(e.on ? juce::MidiMessage::noteOn(e.channel, e.note, 1.0f)
+                               : juce::MidiMessage::noteOff(e.channel, e.note), offset);
+        }
+        // Registration changes between blocks (disabled stops release,
+        // re-enabled stops retrigger held keys).
+        if (block == 1500 * 44100 / int(rate) / 100) engine.getDivisionByIndex(1)->enableStop(0, false);
+        if (block == 1800 * 44100 / int(rate) / 100) engine.getDivisionByIndex(1)->enableStop(0, true);
+
+        juce::AudioBuffer<float> view(audio.getArrayOfWritePointers(), audio.getNumChannels(), frames);
+        allHeapOperations = 0;
+        countAllHeap = true;
+        processor.processBlock(view, midi);
+        countAllHeap = false;
+        result.heapOperations += allHeapOperations;
+        for (int i = 0; i < frames; ++i) {
+            result.left.push_back(view.getSample(0, i));
+            result.right.push_back(view.getSample(1, i));
+        }
+        result.peakVoices = std::max(result.peakVoices, engine.getVoiceCount());
+        position += frames;
+    }
+
+    result.triggers = engine.getVoicePool().getTriggerCount();
+    result.mispredictions = engine.getBatchMispredictions();
+    result.finalVoices = engine.getVoiceCount();
+    if (auto* team = engine.getDspTeam())
+        result.stats = team->getStats();
+    return result;
+}
+
+void compareExact(const RenderResult& a, const RenderResult& b, const char* message)
+{
+    check(a.left.size() == b.left.size(), message);
+    for (size_t i = 0; i < a.left.size(); ++i) {
+        if (!(a.left[i] == b.left[i] && a.right[i] == b.right[i])) {
+            std::cerr << "first difference at sample " << i << ": " << a.left[i] << " vs " << b.left[i]
+                      << ", " << a.right[i] << " vs " << b.right[i] << '\n';
+            check(false, message);
+        }
+    }
+}
+
+float peakDifference(const RenderResult& a, const RenderResult& b)
+{
+    float peak = 0;
+    for (size_t i = 0; i < std::min(a.left.size(), b.left.size()); ++i)
+        peak = std::max({peak, std::abs(a.left[i] - b.left[i]), std::abs(a.right[i] - b.right[i])});
+    return peak;
+}
+
+float peakLevel(const RenderResult& r)
+{
+    float peak = 0;
+    for (size_t i = 0; i < r.left.size(); ++i)
+        peak = std::max({peak, std::abs(r.left[i]), std::abs(r.right[i])});
+    return peak;
+}
+
+void modelReloadSafetyTests()
+{
+    ScopedEnvironment environment({{"AEOLUS_DSP_WORKERS","3"}});
+    AeolusAudioProcessor processor;
+    processor.prepareToPlay(44100,512);
+    auto& engine=processor.getEngine();
+    auto* division=engine.getDivisionByIndex(0);
+    division->setMIDIChannelsMask(1);division->enableStop(0,true);
+    auto stops=aeolus::getTestDataDirectory().getChildFile("Stops").findChildFiles(juce::File::findFiles,false,"*.json");
+    check(!stops.isEmpty(),"reload fixture has no test-owned model");
+    std::atomic<bool> running {true}, release {false};
+    std::thread audio([&] {
+        juce::AudioBuffer<float> buffer(aeolus::N_OUTPUT_CHANNELS,512);
+        juce::MidiBuffer midi;midi.addEvent(juce::MidiMessage::noteOn(1,60,1.0f),17);
+        while(running.load()) {
+            {
+                const juce::ScopedLock lock(processor.getCallbackLock());
+                if(!processor.isSuspended()) {
+                    if(release.exchange(false)) midi.addEvent(juce::MidiMessage::noteOff(1,60),17);
+                    processor.processBlock(buffer,midi);midi.clear();
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+    struct Join { std::atomic<bool>& running;std::thread& thread;~Join(){running=false;thread.join();} } join {running,audio};
+    auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);
+    while(engine.getAudioCompleted()==0 && std::chrono::steady_clock::now()<deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    check(engine.getAudioCompleted()>0,"reload audio fixture did not start");
+    check(engine.getVoiceCount()>0,"reload fixture did not create live voices");
+    auto* global=aeolus::EngineGlobal::getInstance();
+    global->reloadStopFile(stops[0]);
+    check(global->hasDeferredStopReloads(),"replacement was not deferred while pipes were sounding");
+    check(engine.getVoiceCount()>0 && !engine.isEmergencyMuted(),"model reload cut an active note or latched Panic");
+    const auto clone=stops[0].getSiblingFile("test-new-"+juce::Uuid().toString()+".json");
+    check(stops[0].copyFileTo(clone),"could not create test-owned model variant");
+    global->reloadStopFile(clone);
+    check(global->getStopByName(clone.getFileNameWithoutExtension())!=nullptr,"fresh variant was not immediately available");
+    check(engine.getVoiceCount()>0,"fresh model creation interrupted active voices");
+    release=true;
+    deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+    while(global->hasDeferredStopReloads() && std::chrono::steady_clock::now()<deadline) pump(20);
+    processor.suspendForEdit(true);
+    check(!global->hasDeferredStopReloads() && engine.getVoiceCount()==0,"deferred model did not reload after its tails finished");
+    check(!engine.isEmergencyMuted(),"idle model reload latched Panic");
+    processor.suspendForEdit(false);
+    clone.deleteFile();
+}
+
+void safetyFooterTests()
+{
+    auto* global=aeolus::EngineGlobal::getInstance();
+    const bool original=global->isKeyboardVisible();
+    for(const bool visible:{true,false}) {
+        global->setKeyboardVisible(visible);
+        AeolusAudioProcessor processor;
+        std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
+        editor->setSize(640,480);
+        juce::TextButton* panic=nullptr;juce::TextButton* resume=nullptr;
+        juce::MidiKeyboardComponent* keyboard=nullptr;ui::SequencerView* sequencer=nullptr;
+        for(auto* child:editor->getChildren()) {
+            if(auto* button=dynamic_cast<juce::TextButton*>(child)) {
+                if(button->getButtonText()=="PANIC") panic=button;
+                if(button->getButtonText()=="Resume audio") resume=button;
+            }
+            if(auto* item=dynamic_cast<juce::MidiKeyboardComponent*>(child)) keyboard=item;
+            if(auto* item=dynamic_cast<ui::SequencerView*>(child)) sequencer=item;
+        }
+        check(panic && resume && keyboard && sequencer,"global safety controls missing");
+        check(!panic->getBounds().intersects(resume->getBounds()),"Panic and Resume overlap");
+        check(sequencer->getBottom()<=panic->getY(),"sequencer overlaps safety footer");
+        if(visible) check(keyboard->getBottom()<=panic->getY(),"keyboard overlaps Panic");
+        check(!resume->isEnabled(),"Resume enabled before Panic acknowledgement");
+        // Bare Xvfb has no window manager and JUCE popup atoms are unavailable.
+        // Enable this workflow on an authenticated desktop for native UI checks.
+        if(!visible && std::getenv("AEOLUS_TEST_POPUP_WORKFLOW")) {
+            for(auto* child:editor->getChildren())
+                if(auto* button=dynamic_cast<juce::DrawableButton*>(child);button && button->getName()=="settingsButton") button->triggerClick();
+            pump(20);
+            editor.reset();
+            juce::PopupMenu::dismissAllActiveMenus();pump(20);
+        }
+    }
+    global->setKeyboardVisible(original);
+}
+
+void realtimeConfigTests()
+{
+    check(aeolus::RealtimeConfig::parseCpuList("1-3,6")==std::vector<int>({1,2,3,6}),"CPU range parsing failed");
+    for(const auto* invalid:{"0,","1-","x","2048"}) {
+        bool rejected=false;
+        try { aeolus::RealtimeConfig::parseCpuList(invalid); } catch(const std::invalid_argument&) { rejected=true; }
+        check(rejected,"malformed CPU list silently removed affinity");
+    }
+    ScopedEnvironment environment({{"AEOLUS_DSP_WORKERS","99999999999999999999999999"}});
+#if JUCE_LINUX && !AEOLUS_MULTIBUS_OUTPUT
+    bool rejected=false;
+    try { aeolus::RealtimeConfig::fromEnvironment(); } catch(const std::invalid_argument&) { rejected=true; }
+    check(rejected,"overflowed integer setting accepted");
+#endif
+}
+
+void batchRendererTests()
+{
+#if JUCE_LINUX && !AEOLUS_MULTIBUS_OUTPUT
+    for (float rate : {44100.0f, 48000.0f}) {
+        // Serial renderer with per-voice noise is the reference. The batch
+        // renderer with one voice per group sums in the same order and must
+        // match it exactly.
+        const auto serial = renderScript({{"AEOLUS_PER_VOICE_RANDOM", "1"}}, rate, false);
+        // Fixture check: per-voice noise makes the serial renderer repeatable.
+        const auto again = renderScript({{"AEOLUS_PER_VOICE_RANDOM", "1"}}, rate, false);
+        compareExact(serial, again, "serial renderer with per-voice noise is not repeatable");
+        const auto k1 = renderScript({{"AEOLUS_DSP_WORKERS", "0"}, {"AEOLUS_DSP_GROUP_SIZE", "1"}, {"AEOLUS_DSP_BATCH_QUANTA", "1"}}, rate, false);
+        compareExact(serial, k1, "batch renderer (1 quantum, group 1) differs from serial");
+        const auto batchG1 = renderScript({{"AEOLUS_DSP_WORKERS", "0"}, {"AEOLUS_DSP_GROUP_SIZE", "1"}}, rate, false);
+        const auto batchG1Workers = renderScript({{"AEOLUS_DSP_WORKERS", "3"}, {"AEOLUS_DSP_GROUP_SIZE", "1"}}, rate, false);
+
+        check(peakLevel(serial) > 1e-3f, "batch fixture is silent");
+        check(serial.peakVoices > 20 && serial.peakVoices < serial.poolSize, "batch fixture voice count out of range");
+        check(serial.finalVoices == 0, "serial fixture left voices sounding");
+        compareExact(serial, batchG1, "batch renderer (group 1, no workers) differs from serial");
+        compareExact(serial, batchG1Workers, "batch renderer (group 1, 3 workers) differs from serial");
+
+        // Grouped summation is deterministic regardless of thread count.
+        const auto g8w0 = renderScript({{"AEOLUS_DSP_WORKERS", "0"}}, rate, false);
+        const auto g8w1 = renderScript({{"AEOLUS_DSP_WORKERS", "1"}}, rate, false);
+        const auto g8w3 = renderScript({{"AEOLUS_DSP_WORKERS", "3"}}, rate, false);
+        compareExact(g8w0, g8w1, "batch renderer output depends on worker count (1)");
+        compareExact(g8w0, g8w3, "batch renderer output depends on worker count (3)");
+        const auto refused=renderScript({{"AEOLUS_DSP_WORKERS","3"},{"AEOLUS_DSP_WORKER_CPUS","1023"}},rate,false);
+        compareExact(g8w0,refused,"worker-policy fallback changed the rendered output");
+        check(refused.stats.jobsByWorkers==0,"dispatched jobs despite refused worker affinity");
+
+        const float rounding = peakDifference(serial, g8w0);
+        std::cout << "Batch renderer at " << rate << " Hz: peak voices " << serial.peakVoices
+                  << ", grouped-summation peak difference " << rounding
+                  << " (signal peak " << peakLevel(serial) << "), worker jobs "
+                  << g8w3.stats.jobsByWorkers << "/" << g8w3.stats.jobs << '\n';
+        check(rounding < 1e-5f, "grouped summation differs by more than rounding");
+
+        for (const auto* r : {&serial, &batchG1, &batchG1Workers, &g8w0, &g8w1, &g8w3}) {
+            check(r->mispredictions == 0, "batch renderer rendered quanta ahead of MIDI events");
+            check(r->finalVoices == 0, "batch renderer left voices sounding");
+            check(r->heapOperations == 0, "processing allocated or freed heap memory");
+        }
+
+        // Bounded ring clears must match the original full clears, including
+        // for recycled voices whose rings hold old audio.
+        {
+            const std::map<std::string, std::string> reuse { {"AEOLUS_PER_VOICE_RANDOM", "1"}, {"AEOLUS_MAX_VOICES", "128"} };
+            const auto bounded = renderScript(reuse, rate, false);
+            aeolus::dsp::setFullVoiceClearForTesting(true);
+            const auto full = renderScript(reuse, rate, false);
+            aeolus::dsp::setFullVoiceClearForTesting(false);
+            check(bounded.peakVoices < bounded.poolSize && bounded.triggers > juce::uint64(bounded.poolSize),
+                  "voice reuse fixture did not recycle voices");
+            compareExact(full, bounded, "bounded voice ring clears changed output");
+        }
+
+        // Dense registration with a deliberately small pool: voices are
+        // dropped (as in the serial renderer) but nothing may hang or leak.
+        const auto exhausted = renderScript({{"AEOLUS_DSP_WORKERS", "3"}, {"AEOLUS_MAX_VOICES", "64"}}, rate, true);
+        check(exhausted.peakVoices == 64, "pool exhaustion fixture did not exhaust the pool");
+        check(exhausted.finalVoices == 0 && exhausted.mispredictions == 0 && exhausted.heapOperations == 0,
+              "batch renderer misbehaved at pool exhaustion");
+    }
+
+#endif
+}
+
+//==============================================================================
+
+void serialEmergencyPanicTests()
+{
+    ScopedEnvironment environment({});
+    for(const float rate:{44100.0f,48000.0f}) {
+        AeolusAudioProcessor processor;
+        auto& engine=processor.getEngine();
+        engine.getDivisionByIndex(0)->setMIDIChannelsMask(1);
+        engine.getDivisionByIndex(0)->enableStop(0,true);
+        processor.prepareToPlay(rate,512);
+        juce::AudioBuffer<float> audio(aeolus::N_OUTPUT_CHANNELS,512);
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1,60,1.0f),17);
+        processor.processBlock(audio,midi);midi.clear();
+        check(engine.getVoiceCount()>0,"serial Panic fixture had no voices");
+        processor.panic();processor.processBlock(audio,midi);
+        check(engine.isEmergencyMuted() && !engine.isEmergencyPanicPending(),"serial panic did not latch and acknowledge");
+        check(engine.getVoiceCount()==0 && audio.getMagnitude(0,512)==0,"serial panic left audible voices");
+        check(engine.authorizeEmergencyResume(engine.getPanicAcknowledged()),"serial resume authorization failed");
+        processor.releaseResources();processor.prepareToPlay(rate,512);
+        check(!engine.isEmergencyMuted(),"serial Resume failed");
+    }
+}
+
+void emergencyPanicTests()
+{
+#if JUCE_LINUX && !AEOLUS_MULTIBUS_OUTPUT
+    for (const int workers : {0, 3}) for (const float rate : {44100.0f, 48000.0f}) {
+        ScopedEnvironment environment({{"AEOLUS_DSP_WORKERS", std::to_string(workers)}, {"AEOLUS_MAX_VOICES", "1024"}});
+        AeolusAudioProcessor processor;
+        auto& engine = processor.getEngine();
+        for (int d=0; d<engine.getDivisionCount(); ++d) {
+            auto* division = engine.getDivisionByIndex(d);
+            division->setMIDIChannelsMask(1);
+            for (int s=0; s<division->getStopsCount(); ++s) division->enableStop(s, true);
+            for (int l=0; l<division->getLinksCount(); ++l) division->enableLink(l, false);
+        }
+        processor.prepareToPlay(rate,512);
+        processor.getParametersContainer().reverbWet->setValueNotifyingHost(.42f);
+        juce::AudioBuffer<float> audio(aeolus::N_OUTPUT_CHANNELS,512);
+        juce::MidiBuffer midi;
+        for (int note : {45,47,48,50,52,53,79,81,83,84}) midi.addEvent(juce::MidiMessage::noteOn(1,note,1.0f),0);
+        for (int block=0;block<32;++block) {processor.processBlock(audio,midi);midi.clear();}
+        check(engine.getVoiceCount()>400,"panic setup did not create dense registration");
+        engine.setPanicTestDelay(2000);
+        std::atomic<bool> observed {false};
+        std::thread requester([&] {
+            const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);
+            while (!engine.getPanicTestStarts() && std::chrono::steady_clock::now()<deadline) std::this_thread::yield();
+            observed.store(engine.getPanicTestStarts()>0);
+            processor.panic();
+        });
+        heapOperations=0;countHeap=true;
+        processor.processBlock(audio,midi);
+        countHeap=false;
+        requester.join();
+        check(heapOperations==0,"emergency panic allocated on the audio coordinator");
+        engine.setPanicTestDelay(0);
+        // 48 kHz can consume an existing interpolator sample before a job begins.
+        if (engine.isEmergencyPanicPending()) processor.processBlock(audio,midi);
+        check(observed.load(),"panic request did not overlap an in-flight job");
+        check(!engine.isEmergencyPanicPending(),"panic was not acknowledged after worker completion");
+        check(engine.getAudioStarted()>0 && engine.getAudioCompleted()==engine.getAudioStarted(),"callback heartbeat did not finish during panic");
+        check(engine.isAudioActive(),"prepared processor did not publish active device state");
+        check(engine.isEmergencyMuted() && engine.getVoiceCount()==0,"panic did not latch silence and reclaim voices");
+        for (int block=0;block<12;++block) {
+            engine.postNoteEvent(true, 73, 1);
+            midi.addEvent(juce::MidiMessage::noteOn(1,72,1.0f),17);
+            processor.processBlock(audio,midi);midi.clear();
+            check(audio.getMagnitude(0,audio.getNumSamples())==0.0f,"panic leaked dry/reverb audio");
+            check(engine.getVoiceCount()==0,"queued MIDI retriggered while panic was latched");
+        }
+        processor.releaseResources();
+        processor.prepareToPlay(rate,512);
+        check(engine.isEmergencyMuted(),"device changes bypassed latched panic without explicit Resume");
+        check(engine.authorizeEmergencyResume(engine.getPanicAcknowledged()),"explicit resume authorization failed");
+        engine.requestEmergencyPanic();
+        processor.releaseResources();
+        processor.prepareToPlay(rate,512);
+        check(engine.isEmergencyMuted(),"stale Resume cleared a newer panic");
+        processor.processBlock(audio,midi);
+        check(!engine.isEmergencyPanicPending(),"newer panic failed acknowledgement");
+        check(engine.authorizeEmergencyResume(engine.getPanicAcknowledged()),"latest Resume authorization failed");
+        processor.releaseResources();
+        processor.prepareToPlay(rate,512);
+        check(!engine.isEmergencyMuted(),"device reprepare failed to resume after acknowledged panic");
+        processor.processBlock(audio,midi);
+        check(engine.getVoiceCount()==0,"notes queued while muted replayed after resume");
+        check(audio.getMagnitude(0,audio.getNumSamples())<=8.1e-5f,"old audio leaked after resume");
+        midi.addEvent(juce::MidiMessage::noteOn(1,60,1.0f),17);
+        bool sounded=false;
+        for (int block=0;block<32;++block) {
+            processor.processBlock(audio,midi);midi.clear();
+            sounded |= audio.getMagnitude(0,audio.getNumSamples())>1e-5f;
+        }
+        check(sounded && engine.getVoiceCount()>0,"new notes did not play after explicit resume");
+    }
+    std::cout<<"Emergency panic: delayed in-flight jobs acknowledged, voices reclaimed, wet output silent, resume passed\n";
+
+#endif
+}
+
+// Offline engine benchmark: aeolus_tests --benchmark-engine [notes] [seconds]
+// Uses the environment as given (AEOLUS_DSP_WORKERS etc.).
+
+struct WindowStats
+{
+    std::vector<double> ms;
+    void print(const char* name, double budget) const
+    {
+        if (ms.empty()) { std::cout << name << ": no blocks\n"; return; }
+        auto sorted = ms;
+        std::sort(sorted.begin(), sorted.end());
+        const auto at = [&](double p) { return sorted[std::min(sorted.size() - 1, size_t(p * double(sorted.size() - 1) + 0.5))]; };
+        const auto over = std::count_if(ms.begin(), ms.end(), [&](double v) { return v > budget; });
+        std::cout << std::fixed << std::setprecision(3) << name << ": blocks " << ms.size()
+                  << ", p50 " << at(0.5) << " ms, p99 " << at(0.99) << " ms, max " << sorted.back()
+                  << " ms, over budget " << over << '\n';
+    }
+};
+
+void engineBenchmark(int numNotes, double holdSeconds)
+{
+    constexpr float rate = 44100.0f;
+    constexpr int blockSize = 512;
+    const double budget = 1000.0 * blockSize / rate;
+
+    // AEOLUS_BENCHMARK_FULL_VOICE_CLEAR=1 restores the original full ring
+    // clears for an A/B comparison within one test build.
+    const bool fullClear = std::getenv("AEOLUS_BENCHMARK_FULL_VOICE_CLEAR") != nullptr;
+    aeolus::dsp::setFullVoiceClearForTesting(fullClear);
+
+    AeolusAudioProcessor processor;
+    auto& engine = processor.getEngine();
+    for (int d = 0; d < engine.getDivisionCount(); ++d) {
+        auto* division = engine.getDivisionByIndex(d);
+        division->setMIDIChannelsMask(1);
+        for (int s = 0; s < division->getStopsCount(); ++s) division->enableStop(s, true);
+        for (int l = 0; l < division->getLinksCount(); ++l) division->enableLink(l, false);
+    }
+    processor.prepareToPlay(rate, blockSize);
+    processor.getParametersContainer().reverbWet->setValueNotifyingHost(0);
+
+    std::vector<int> notes;
+    for (int i = 0; i < numNotes; ++i) {
+        const int note = 36 + (numNotes > 1 ? (i * 48) / (numNotes - 1) : 0);
+        if (notes.empty() || notes.back() != note) notes.push_back(note);
+    }
+
+    const auto& config = engine.getRealtimeConfig();
+    std::cout << "Engine benchmark: " << notes.size() << " notes, all stops, 44100 Hz / " << blockSize
+              << " frames (budget " << budget << " ms), voice pool " << engine.getVoicePool().getMaxVoices() << ", "
+              << (config.isBatchRendering() ? "batch renderer, " + std::to_string(config.dspWorkers) + " workers, group "
+                                                  + std::to_string(config.dspGroupSize)
+                                            : std::string("serial renderer"))
+              << (fullClear || aeolus::dsp::useFullVoiceClear() ? ", full voice ring clears" : ", bounded voice ring clears") << '\n';
+
+    juce::AudioBuffer<float> audio(aeolus::N_OUTPUT_CHANNELS, blockSize);
+    juce::MidiBuffer midi;
+    WindowStats attack, sustain, release;
+    int peakVoices = 0;
+    const int attackBlocks = int(rate / blockSize);
+    const int holdBlocks = int(holdSeconds * rate / blockSize);
+
+    using Clock = std::chrono::steady_clock;
+    const auto timeBlock = [&] {
+        const auto start = Clock::now();
+        processor.processBlock(audio, midi);
+        midi.clear();
+        return std::chrono::duration<double, std::milli>(Clock::now() - start).count();
+    };
+
+    for (int i = 0; i < 40; ++i) timeBlock(); // warm up
+    for (int note : notes) midi.addEvent(juce::MidiMessage::noteOn(1, note, 1.0f), 0);
+    for (int b = 0; b < holdBlocks; ++b) {
+        const double ms = timeBlock();
+        (b < attackBlocks ? attack : sustain).ms.push_back(ms);
+        peakVoices = std::max(peakVoices, engine.getVoiceCount());
+    }
+    for (int note : notes) midi.addEvent(juce::MidiMessage::noteOff(1, note), 0);
+    for (int b = 0; b < int(10 * rate / blockSize) && (b == 0 || engine.getVoiceCount() > 0); ++b)
+        release.ms.push_back(timeBlock());
+
+    auto& report = aeolus::rt::audioThreadReport();
+    aeolus::rt::ThreadPolicyStatus status;
+    status.priorityError = report.priorityError.load();
+    status.affinityError = report.affinityError.load();
+    std::cout << "Calling thread: " << aeolus::rt::describe(status, config.audioPriority, config.audioCpus) << '\n';
+    if (auto* team = engine.getDspTeam())
+        if (team->getNumWorkers() > 0)
+            std::cout << "Workers: " << team->describeWorkers() << '\n';
+    std::cout << "Peak voices: " << peakVoices << '\n';
+    attack.print("Attack (first second)", budget);
+    sustain.print("Sustain", budget);
+    release.print("Release (until silent)", budget);
+    if (auto* team = engine.getDspTeam()) {
+        const auto stats = team->getStats();
+        std::cout << "Team: " << stats.batches << " batches, " << stats.jobsByWorkers << "/" << stats.jobs
+                  << " jobs on workers, waited in " << stats.waits << " batches, max wait "
+                  << double(stats.waitNanosMax) / 1000.0 << " us\n";
+    }
+}
 }
 
 void* operator new(std::size_t size)
 {
+    if (countAllHeap.load(std::memory_order_relaxed)) ++allHeapOperations;
     if (countHeap) ++heapOperations;
     if (void* p = std::malloc(std::max(size, size_t(1)))) return p;
     throw std::bad_alloc();
 }
 void* operator new[](std::size_t size) { return ::operator new(size); }
-void operator delete(void* p) noexcept { if (countHeap && p) ++heapOperations; std::free(p); }
+void operator delete(void* p) noexcept
+{
+    if (p && countAllHeap.load(std::memory_order_relaxed)) ++allHeapOperations;
+    if (countHeap && p) ++heapOperations;
+    std::free(p);
+}
 void operator delete[](void* p) noexcept { ::operator delete(p); }
 void operator delete(void* p, std::size_t) noexcept { ::operator delete(p); }
 void operator delete[](void* p, std::size_t) noexcept { ::operator delete(p); }
@@ -425,6 +1044,14 @@ int main(int argc, char** argv)
         fixture.createDirectory();
         fixture.getChildFile("organ_config.json").replaceWithData(BinaryData::default_organ_json, BinaryData::default_organ_jsonSize);
         fixture.getChildFile("organ_state.json").replaceWithText("{}");
+        if (argc >= 2 && std::string(argv[1]) == "--benchmark-engine") {
+            engineBenchmark(argc >= 3 ? std::atoi(argv[2]) : 10, argc >= 4 ? std::atof(argv[3]) : 8.0);
+            juce::DeletedAtShutdown::deleteAll();
+            return 0;
+        }
+        delayBoundedResetTests();
+        callbackProfilerTests();
+        safetyFooterTests(); modelReloadSafetyTests(); realtimeConfigTests(); batchRendererTests(); serialEmergencyPanicTests(); emergencyPanicTests();
         profilerTests(); queueTests(); simdTests(); scalarConvolutionTest(); reverbTests(); concurrentReverbTests(); midiTests(); lifetimeTests();
         std::cout << "Audio/MIDI regressions passed\n";
     } catch (const std::exception& e) {

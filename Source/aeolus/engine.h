@@ -33,7 +33,10 @@
 #include <mutex>
 #include "aeolus/dsp/interpolator.h"
 #include "aeolus/dsp/limiter.h"
+#include "aeolus/rtconfig.h"
+#include "aeolus/dspteam.h"
 #include "mts/libMTSClient.h"
+#include <array>
 #include <optional>
 #include <vector>
 #include <map>
@@ -41,6 +44,7 @@
 AEOLUS_NAMESPACE_BEGIN
 
 class Engine;
+class PanicControl;
 
 /**
  * @brief A global shared instance of the organ engine.
@@ -128,6 +132,7 @@ public:
     void rebuildRankwaves();
 
     void reloadStopFile(const juce::File& file);
+    bool hasDeferredStopReloads() const noexcept { return !_deferredStopFiles.isEmpty(); }
 
     JUCE_DECLARE_SINGLETON (EngineGlobal, false)
 
@@ -181,6 +186,7 @@ private:
     void pollStopFiles();
         juce::HashMap<juce::String, juce::int64> _stopFileModTimes;
         int _stopPollCounter { 0 };
+    juce::StringArray _deferredStopFiles;
 
 };
 
@@ -193,6 +199,10 @@ private:
  */
 class Engine : private juce::Timer
 {
+    // First declared, last destroyed: retain the guardian through all DSP/member
+    // teardown, but stop its receiver before any Engine fields disappear.
+    std::unique_ptr<PanicControl> _panicControl;
+
 public:
 
     //--------------------------------------------------------------------------
@@ -348,6 +358,43 @@ public:
      */
     void allNotesOff();
 
+    // Audio callback publishes progress even when optional profiling is disabled.
+    static_assert(std::atomic<uint64_t>::is_always_lock_free, "Audio heartbeat must be lock-free");
+    void audioCallbackStarted() noexcept { _audioStarted.fetch_add(1, std::memory_order_relaxed); }
+    void audioCallbackCompleted() noexcept { _audioCompleted.fetch_add(1, std::memory_order_release); }
+    uint64_t getAudioCompleted() const noexcept { return _audioCompleted.load(std::memory_order_acquire); }
+    uint64_t getAudioStarted() const noexcept { return _audioStarted.load(std::memory_order_acquire); }
+    uint64_t getGuiProgress() const noexcept { return _guiProgress.load(std::memory_order_acquire); }
+    bool isAudioActive() const noexcept { return getAudioState() == 1; }
+    unsigned getAudioState() const noexcept { return _audioState.load(std::memory_order_acquire); }
+    void restoreAudioState(unsigned state) noexcept { _audioState.store(state,std::memory_order_release); }
+    void setAudioPreparing() noexcept { _audioState.store(2, std::memory_order_release); }
+    void setAudioActive(bool active) noexcept { _audioState.store(active ? 1u : 0u, std::memory_order_release); }
+
+    // Requests may come from the UI or the independent control thread.
+    unsigned requestEmergencyPanic() noexcept {
+        _panicMuted.store(true, std::memory_order_release);
+        return _panicRequested.fetch_add(1, std::memory_order_acq_rel) + 1;
+    }
+    bool hasSafetyWatchdog() const;
+    void beginShutdown();
+    bool safetyWatchdogStarting() const;
+    void cancelEmergencyResume() noexcept { _resumeAuthorized.store(~0u,std::memory_order_release); }
+    bool authorizeEmergencyResume(unsigned epoch) noexcept {
+        if(epoch!=getPanicRequested() || epoch!=getPanicAcknowledged()) return false;
+        _resumeAuthorized.store(epoch,std::memory_order_release);
+        return true;
+    }
+    bool isEmergencyPanicPending() const noexcept { return _panicRequested.load(std::memory_order_acquire) != _panicAcknowledged.load(std::memory_order_acquire); }
+    bool isEmergencyMuted() const noexcept { return _panicMuted.load(std::memory_order_acquire) || isEmergencyPanicPending(); }
+    unsigned getPanicRequested() const noexcept { return _panicRequested.load(std::memory_order_acquire); }
+    unsigned getPanicAcknowledged() const noexcept { return _panicAcknowledged.load(std::memory_order_acquire); }
+#if AEOLUS_TESTING
+    void setPanicTestDelay(unsigned delay) noexcept { _panicTestDelay.store(delay); _panicTestStarts.store(0); }
+    unsigned getPanicTestStarts() const noexcept { return _panicTestStarts.load(std::memory_order_acquire); }
+#endif
+
+
     juce::MidiKeyboardState& getMidiKeyboardState() noexcept { return _midiKeyboardState; }
 
     juce::Range<int> getMidiKeyboardRange() const;
@@ -355,6 +402,16 @@ public:
     std::set<int> getKeySwitches() const;
 
     VoicePool& getVoicePool() noexcept { return _voicePool; }
+
+    /// Scheduling/rendering configuration read from the environment.
+    const RealtimeConfig& getRealtimeConfig() const noexcept { return _rtConfig; }
+
+    /// Batch renderer worker team, or nullptr when the serial renderer is used.
+    DspTeam* getDspTeam() noexcept { return _dspTeam.get(); }
+
+    /// Rendered quanta that were not consumed by the process() call that
+    /// rendered them. Always zero unless the batch length prediction is wrong.
+    juce::uint64 getBatchMispredictions() const noexcept { return _batchMispredictions; }
 
     int getDivisionCount() const noexcept { return _divisions.size(); }
     Division* getDivisionByIndex(int i) { return _divisions[i]; }
@@ -395,6 +452,32 @@ private:
 
     bool processSubFrame();
 
+    //------------------------------------------------------
+    // Batch renderer (AEOLUS_DSP_WORKERS); see docs/MULTICORE.md.
+
+    struct BatchJob
+    {
+        Voice* first = nullptr;
+        int count = 0;
+        float* left = nullptr;
+        float* right = nullptr;
+        juce::uint64 alive = 0;     ///< Bit q set when a voice of the job sounds in quantum q.
+    };
+
+    /// Divisions handled by note on/off (layouts allow at most 10).
+    static constexpr int MaxNoteDivisions = 64;
+
+    static constexpr int MaxBatchQuanta = 32;
+    static constexpr int MaxBatchDivisions = 64;
+
+    void prepareBatchRenderer();
+    int countSubFramesNeeded(int numFrames) const;
+    void nextBatchedSubFrame(int numFrames);
+    void renderBatch(int numQuanta);
+    void buildBatchJobs(int groupSize);
+    static void runBatchJob(void* context, int jobIndex);
+    void reportRealtimeStatus();
+
     void processPendingNoteEvents();
     void prepareReverb();
 
@@ -419,6 +502,7 @@ private:
     RingBuffer<NoteEvent, 1024> _pendingNoteEvents;
     std::atomic<bool> _noteQueueOverflow { false };
 
+    RealtimeConfig _rtConfig;       ///< Must precede the voice pool.
     VoicePool _voicePool;           ///< All the voices.
 
     AudioParameterPool _params;     ///< Internal parameters.
@@ -459,6 +543,31 @@ private:
 
     dsp::Interpolator _interpolator;
 
+    std::unique_ptr<DspTeam> _dspTeam;
+    std::vector<BatchJob> _batchJobs;           ///< Capacity reserved up front.
+    std::vector<int> _batchDivisionJobs;        ///< First job of each division, plus end.
+    std::vector<float> _batchGroupStorage;
+    float* _batchGroupBase = nullptr;
+    int _batchJobCapacity = 0;
+    int _batchQuantaInJob = 0;                  ///< Quanta in the batch being rendered.
+    juce::AudioBuffer<float> _batchOutput;
+    int _batchQuanta = 0;
+    int _batchNext = 0;
+    juce::uint64 _batchMispredictions = 0;
+    int _reportedAudioGeneration = 0;
+    bool _reportedWorkers = false;
+
+    // Only the audio owner clears voices, after every worker has returned.
+    void applyEmergencyPanic();
+    std::atomic<uint64_t> _audioStarted {0}, _audioCompleted {0}, _guiProgress {0};
+    std::atomic<unsigned> _audioState {0}; // 0: deliberately closed, 1: active, 2: preparing
+    std::atomic<unsigned> _panicRequested {0}, _panicAcknowledged {0};
+    std::atomic<bool> _panicMuted {false};
+    std::atomic<unsigned> _resumeAuthorized {~0u};
+
+#if AEOLUS_TESTING
+    std::atomic<unsigned> _panicTestDelay {0}, _panicTestStarts {0};
+#endif
     juce::MidiKeyboardState _midiKeyboardState;
 
     Level _volumeLevel;

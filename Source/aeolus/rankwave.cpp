@@ -105,7 +105,11 @@ void Pipewave::release(Pipewave::State& state)
 void Pipewave::play(Pipewave::State& state, float* out)
 {
     static Random rnd;
+    play(state, out, rnd);
+}
 
+void Pipewave::play(Pipewave::State& state, float* out, Random& rnd)
+{
     jassert(out != nullptr);
     jassert(state.env != Pipewave::Idle);
     jassert(_attackStartPtr != nullptr);

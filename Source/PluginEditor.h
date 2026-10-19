@@ -117,6 +117,9 @@ private:
     juce::Label _mtsDisconnectedLabel;
 
     juce::TextButton _cancelButton;
+    juce::TextButton _safetyButton {"PANIC"};
+    juce::Label _safetyStatus;
+    juce::TextButton _resumeButton {"Resume audio"};
 
     float _uiScalingPercent{};
     NoCreepConstrainer _noCreep;

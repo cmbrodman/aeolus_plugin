@@ -650,6 +650,17 @@ void Division::noteOff(int note, int midiChannel, bool followLinks)
     }
 }
 
+void Division::emergencySilence()
+{
+    _keysState.reset();
+    _aggregatedKeysState.reset();
+    _bassCouplerNote = -1;
+    while (auto* voice = _activeVoices.first()) {
+        _activeVoices.remove(voice);
+        voice->resetAndReturnToPool();
+    }
+}
+
 void Division::allNotesOff()
 {
     _keysState.reset();
@@ -694,9 +705,7 @@ bool Division::process(AudioBuffer<float>& targetBuffer, AudioBuffer<float>& voi
     jassert(targetBuffer.getNumSamples() == SUB_FRAME_LENGTH);
     jassert(voiceBuffer.getNumSamples() == SUB_FRAME_LENGTH);
 
-    updateAggregatedKeysState();
-    releaseVoicesOfDisabledStops();
-    triggerVoicesOfEnabledStops();
+    controlStep();
 
     auto* voice = _activeVoices.first();
 
@@ -728,6 +737,19 @@ bool Division::process(AudioBuffer<float>& targetBuffer, AudioBuffer<float>& voi
     }
 
     return true;
+}
+
+void Division::controlStep(int batchQuantum, int* batchLimit)
+{
+    _batchQuantum = batchQuantum;
+    _batchLimit = batchLimit;
+
+    updateAggregatedKeysState();
+    releaseVoicesOfDisabledStops();
+    triggerVoicesOfEnabledStops();
+
+    _batchQuantum = -1;
+    _batchLimit = nullptr;
 }
 
 void Division::modulate(juce::AudioBuffer<float>& targetBuffer, const juce::AudioBuffer<float>& tremulantBuffer)
@@ -827,8 +849,15 @@ void Division::releaseVoicesOfDisabledStops()
             }
         }
 
-        if (shouldRelease)
-            voice->release();
+        if (shouldRelease) {
+            if (_batchQuantum >= 0) {
+                voice->scheduleRelease(_batchQuantum);
+
+                if (_batchLimit != nullptr)
+                    *_batchLimit = jmin(*_batchLimit, voice->predictFinishQuantum(*_batchLimit) + 1);
+            } else
+                voice->release();
+        }
 
         voice = voice->next();
     }
@@ -937,6 +966,9 @@ bool Division::triggerVoicesForStop(int stopIndex, int note)
                     state.chiffGain = stop.getChiffGain();
 
                     if (auto* voice = _engine.getVoicePool().trigger(state)) {
+                        if (_batchQuantum > 0)
+                            voice->setBatchStart(_batchQuantum);
+
                         voice->setStopIndex(stopIndex);
                         _activeVoices.append(voice);
                         voiceTriggered = true;

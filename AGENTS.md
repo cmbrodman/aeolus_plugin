@@ -30,13 +30,19 @@ format is validated without actually checking it.
   pooled voices and division mixing.
 - `Source/aeolus/addsynth.*`, `rankwave.*`: additive models and pipe wavetables.
 - `Source/aeolus/dsp/`: chiff, spatialization, filters, convolution and other DSP.
+- `Source/aeolus/dspteam.*`, `rtconfig.*`: opt-in Linux stereo batch rendering
+  and explicit scheduling configuration; non-Linux rendering remains serial.
+- `Source/aeolus/paniccontrol.*` and `tools/aeolus_safety.py`: Linux independent
+  HEALTH/Panic control and scoped process recovery. Preserve the receiver/Engine
+  teardown order and guardian detachment during same-process processor replacement.
 - `Source/aeolus/simd.*`, `worker.*`, `ringbuffer.h`: arithmetic dispatch,
   background work and bounded single-producer/single-consumer queues.
 - `Resources/`: embedded organ configuration, stop models, IRs, fonts and icons.
 - `Model/`: offline Python modelling experiments, not the application runtime.
 
 The engine synthesizes at 44.1 kHz in 64-sample subframes and converts to the
-external sample rate. The default voice pool has 512 entries. Stereo processing
+external sample rate. The default voice pool has 512 entries; an explicit
+environment setting can resize it. Stereo processing
 includes spatialization and convolution; `WITH_MULTIBUS_OUTPUT` instead builds
 fixed eight-mono-bus output without those stereo effects. This is not the planned
 runtime routing to four configurable stereo pairs.
@@ -128,11 +134,19 @@ each change:
 - Performance: uncapped p50/p99/worst callback times, deadline misses, xruns,
   sustainable voice counts, sample rate/buffer size and target hardware. The
   existing smoothed/capped CPU meter is insufficient evidence.
-- UI/state: exercise the actual editor workflow, cancellation, closing pending
+- UI/state: on an authenticated Linux desktop, `AEOLUS_TEST_POPUP_WORKFLOW=1`
+  additionally exercises closing the editor with its settings menu pending. Bare
+  Xvfb lacks the window-manager atoms required by JUCE popups. Exercise the actual
+  editor workflow, cancellation, closing pending
   menus, save/restart round trips and preservation of custom organs. Use Xvfb
   where appropriate; actual touch and audio hardware need their own checks.
 - Documentation: verify local links, consistency with code/history and
   `git diff --check`. Do not rebuild audio for prose-only changes.
+
+Linux production standalone builds ship adjacent Python safety helpers; keep them
+with the executable. Independent supervision requires Python 3.9+ with pidfds and
+Linux 5.3+; test-enabled builds opt in explicitly and must use isolated preferences.
+Do not distribute a test-enabled executable as the normal application.
 
 Report checks actually run and their limits. Do not present historical CI results,
 static inspection or failed test launches as current functional validation.

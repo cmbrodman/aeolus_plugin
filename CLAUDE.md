@@ -22,5 +22,8 @@ This file adds Claude-specific instructions only.
 - Read-only review requests stay read-only unless fixes are requested. Give
   findings with file/line references, a concrete failure scenario and severity,
   distinguishing confirmed defects from suspected risks.
+- Keep the validated multicore/HEALTH implementation distinct from historical
+  snapshot experiments and the future installer/profile UI. Audit guardian
+  detachment, explicit Resume epochs and ownership barriers before lifecycle edits.
 - Report the checks actually performed. Follow the shared approval boundaries
   for pushes, PRs, merges, publishing and external messages.

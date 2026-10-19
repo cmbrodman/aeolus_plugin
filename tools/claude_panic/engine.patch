@@ -1,0 +1,813 @@
+--- a/Source/PluginProcessor.cpp
++++ b/Source/PluginProcessor.cpp
+@@ -122,11 +122,14 @@
+ //==============================================================================
+ void AeolusAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
+ {
++    _engine.setAudioPreparing();
+     _engine.prepareToPlay((float)sampleRate, samplesPerBlock);
++    _engine.setAudioActive(true);
+ }
+ 
+ void AeolusAudioProcessor::releaseResources()
+ {
++    _engine.setAudioActive(false);
+     // When playback stops, you can use this as an opportunity to free up any
+     // spare memory, etc.
+ }
+@@ -227,6 +230,7 @@
+     // per thread (AEOLUS_AUDIO_RT_PRIORITY, AEOLUS_AUDIO_CPUS).
+     aeolus::rt::applyAudioThreadPolicy(_engine.getRealtimeConfig());
+ 
++    _engine.audioCallbackStarted();
+     auto timestampStart = steady_clock::now();
+ 
+     juce::ScopedNoDenormals noDenormals;
+@@ -242,8 +246,6 @@
+     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
+         buffer.clear(i, 0, buffer.getNumSamples());
+ 
+-    if (_panicRequest.exchange(false))
+-        _engine.allNotesOff();
+ 
+     // Render up to each event, preserving the host's sample positions. The
+     // synthesizer retains its existing 64-sample internal processing quantum.
+@@ -256,6 +258,8 @@
+     }
+     renderRange(buffer, position, buffer.getNumSamples() - position);
+ 
++    if (_engine.isEmergencyMuted()) buffer.clear();
++
+     int nativeXruns = -1;
+     if (_callbackProfiler != nullptr) {
+ #if JucePlugin_Build_Standalone
+@@ -277,6 +281,7 @@
+         _callbackProfiler->record(duration_cast<nanoseconds>(timestampStart.time_since_epoch()).count(),
+             duration_cast<nanoseconds>(timestampStop - timestampStart).count(),
+             _engine.getSampleRate(), buffer.getNumSamples(), _engine.getVoiceCount(), nativeXruns);
++    _engine.audioCallbackCompleted();
+ }
+ 
+ void AeolusAudioProcessor::renderRange(AudioBuffer<float>& buffer, int start, int count)
+--- a/Source/PluginProcessor.h
++++ b/Source/PluginProcessor.h
+@@ -40,7 +40,7 @@
+ 
+     Parameters& getParametersContainer() noexcept { return _parameters; }
+ 
+-    void panic() noexcept { _panicRequest = true; }
++    void panic() noexcept { _engine.requestEmergencyPanic(); }
+ 
+     //==============================================================================
+     // aeolus::EngineGlobal::ProcessorProxy
+--- a/Source/aeolus/callbackprofiler.cpp
++++ b/Source/aeolus/callbackprofiler.cpp
+@@ -1,54 +1,167 @@
+ // Copyright (C) 2026 Aeolus fork contributors
+ // SPDX-License-Identifier: GPL-3.0-or-later
+ #include "callbackprofiler.h"
++#include <chrono>
++#include <condition_variable>
++#include <cerrno>
++#include <fcntl.h>
++#include <sys/stat.h>
++#if defined(_WIN32)
++#include <io.h>
++#else
++#include <unistd.h>
++#endif
++#include <filesystem>
++#include <iomanip>
++#include <locale>
++#include <mutex>
++#include <sstream>
++#if defined(__linux__)
++#include <pthread.h>
++#endif
+ 
+ namespace aeolus {
++struct CallbackProfiler::State {
++    explicit State(std::string name) : path(std::move(name)) {}
++    std::string path;
++    RingBuffer<Sample, 4096> queue;
++    std::atomic<uint64_t> dropped {0};
++    std::atomic<bool> stopping {false}, error {false}, finished {false};
++    std::mutex mutex;
++    std::condition_variable wake;
++#if AEOLUS_TESTING
++    std::shared_ptr<WriterTestState> test;
++#endif
++};
+ std::unique_ptr<CallbackProfiler> CallbackProfiler::create(const juce::String& path)
+ {
+-    if (path.isEmpty()) return {};
+-    if (!juce::File::isAbsolutePath(path)) return {};
++    if (path.isEmpty() || !juce::File::isAbsolutePath(path)) return {};
+     const juce::File file(path);
+-    // Never truncate an existing file or mistake an organ/settings file for
+-    // a telemetry destination. Select a fresh .csv path for each launch.
+     if (file.exists() || file.getFileExtension() != ".csv") return {};
+-    auto output = file.createOutputStream();
+-    if (output == nullptr || !output->openedOk()) return {};
+-    return std::unique_ptr<CallbackProfiler>(new CallbackProfiler(std::move(output)));
++    return std::unique_ptr<CallbackProfiler>(new CallbackProfiler(
++        std::make_shared<State>(path.toStdString())));
+ }
+-CallbackProfiler::CallbackProfiler(std::unique_ptr<juce::FileOutputStream> output)
+-    : _output(std::move(output))
++#if AEOLUS_TESTING
++std::unique_ptr<CallbackProfiler> CallbackProfiler::createForTesting(
++    const juce::String& path, std::shared_ptr<WriterTestState> test)
+ {
+-    _output->writeText("sequence,start_ns,duration_ns,sample_rate,frames,voices,native_xruns\n",
+-                       false, false, nullptr);
+-    startTimer(200);
++    auto state = std::make_shared<State>(path.toStdString());
++    state->test = std::move(test);
++    return std::unique_ptr<CallbackProfiler>(new CallbackProfiler(std::move(state)));
++}
++#endif
++CallbackProfiler::CallbackProfiler(std::shared_ptr<State> state) : _state(std::move(state))
++{
++    // No lambda holds the profiler/processor: a blocked writer can safely outlive
++    // their destruction. Only standard-library state remains on that thread.
++    _writer = std::thread(&CallbackProfiler::writeRecords, _state);
+ }
+ CallbackProfiler::~CallbackProfiler()
+ {
+-    const juce::MessageManagerLock messageLock;
+-    stopTimer();
+-    timerCallback(); // producer must already be stopped by the processor owner
+-    _output->writeText("# dropped_total=" + juce::String(_dropped.load()) + "\n", false, false, nullptr);
+-    _output->flush();
++    std::unique_lock<std::mutex> lock(_state->mutex);
++    _state->stopping.store(true, std::memory_order_release);
++    _state->wake.notify_all(); // producer already stopped; never called in record()
++    const bool finished = _state->wake.wait_for(lock, std::chrono::milliseconds(100),
++        [this] { return _state->finished.load(std::memory_order_acquire); });
++    lock.unlock();
++    if (finished) _writer.join();
++    else _writer.detach(); // bounded shutdown even if storage is blocked
++}
++uint64_t CallbackProfiler::getDroppedCount() const noexcept
++{
++    return _state->dropped.load(std::memory_order_relaxed);
++}
++bool CallbackProfiler::hasWriteError() const noexcept
++{
++    return _state->error.load(std::memory_order_acquire);
+ }
+ void CallbackProfiler::record(int64_t start, int64_t duration, double rate,
+                               int frames, int voices, int xruns) noexcept
+ {
+-    if (!_queue.send({_sequence++, start, duration, rate, frames, voices, xruns}))
+-        _dropped.fetch_add(1, std::memory_order_relaxed);
++    if (!_state->queue.send({_sequence++, start, duration, rate, frames, voices, xruns}))
++        _state->dropped.fetch_add(1, std::memory_order_relaxed);
+ }
+-void CallbackProfiler::timerCallback()
++void CallbackProfiler::writeRecords(std::shared_ptr<State> state) noexcept
+ {
+-    juce::String text;
+-    text.preallocateBytes(32768);
+-    const auto available = _queue.count();
+-    Sample sample {};
+-    for (size_t i = 0; i < available && _queue.receive(sample); ++i)
+-        text << juce::String(sample.sequence) << ',' << juce::String(sample.startNs) << ','
+-             << juce::String(sample.durationNs) << ',' << juce::String(sample.sampleRate, 3) << ','
+-             << sample.frames << ',' << sample.voices << ',' << sample.nativeXruns << '\n';
+-    if (text.isNotEmpty()) {
+-        _output->writeText(text, false, false, nullptr);
+-        _output->flush();
++#if defined(__linux__)
++    pthread_setname_np(pthread_self(), "aeolus-log");
++#endif
++    // Only this thread formats, opens, writes, flushes and closes the stream.
++    // Unbuffered OS writes publish without fsync or a registered stdio stream
++    // that libc might try to flush/wait for during process exit.
++    int output = -1;
++    try {
++#if AEOLUS_TESTING
++        const auto testPause = [&] {
++            if (state->test) {
++                state->test->entered.store(true, std::memory_order_release);
++                while (state->test->paused.load(std::memory_order_acquire))
++                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
++            }
++        };
++        testPause();
++#endif
++#if defined(_WIN32)
++        output = _wopen(std::filesystem::u8path(state->path).c_str(),
++                        _O_WRONLY | _O_CREAT | _O_EXCL | _O_BINARY | _O_NOINHERIT, _S_IREAD | _S_IWRITE);
++#else
++        output = ::open(state->path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
++#endif
++        if (output < 0) state->error.store(true, std::memory_order_release);
++        const auto write = [&](const std::string& text) {
++            size_t offset = 0;
++            while (output >= 0 && !state->error.load(std::memory_order_relaxed) && offset < text.size()) {
++#if defined(_WIN32)
++                const auto written = _write(output, text.data()+offset, (unsigned) (text.size()-offset));
++#else
++                const auto written = ::write(output, text.data()+offset, text.size()-offset);
++#endif
++                if (written < 0 && errno == EINTR) continue;
++                if (written <= 0) state->error.store(true, std::memory_order_release);
++                else offset += size_t(written);
++            }
++        };
++        write("sequence,start_ns,duration_ns,sample_rate,frames,voices,native_xruns"
++              "\n");
++        for (;;) {
++#if AEOLUS_TESTING
++            testPause();
++#endif
++            std::ostringstream text;
++            text.imbue(std::locale::classic());
++            text << std::fixed << std::setprecision(3);
++            const auto available = state->queue.count();
++            Sample sample {};
++            for (size_t i = 0; i < available && state->queue.receive(sample); ++i) {
++                text << sample.sequence << ',' << sample.startNs << ',' << sample.durationNs << ','
++                     << sample.sampleRate << ',' << sample.frames << ',' << sample.voices << ',' << sample.nativeXruns;
++                text << '\n';
++            }
++            if (available != 0) write(text.str());
++            if (state->stopping.load(std::memory_order_acquire) && state->queue.count() == 0) break;
++            std::unique_lock<std::mutex> lock(state->mutex);
++            state->wake.wait_for(lock, std::chrono::milliseconds(200),
++                                [&] { return state->stopping.load(std::memory_order_acquire); });
++        }
++        write("# dropped_total=" + std::to_string(state->dropped.load(std::memory_order_relaxed)) + "\n");
++    } catch (...) {
++        state->error.store(true, std::memory_order_release);
+     }
++    if (output >= 0) {
++#if defined(_WIN32)
++        const int result = _close(output);
++#else
++        const int result = ::close(output);
++#endif
++        if (result != 0) state->error.store(true, std::memory_order_release);
++    }
++#if AEOLUS_TESTING
++    if (state->test) state->test->finished.store(true, std::memory_order_release);
++#endif
++    {
++        std::lock_guard<std::mutex> lock(state->mutex);
++        state->finished.store(true, std::memory_order_release);
++    }
++    state->wake.notify_all();
+ }
+ }
+--- a/Source/aeolus/callbackprofiler.h
++++ b/Source/aeolus/callbackprofiler.h
+@@ -2,11 +2,12 @@
+ // SPDX-License-Identifier: GPL-3.0-or-later
+ #pragma once
+ #include "aeolus/ringbuffer.h"
++#include <thread>
+ 
+ namespace aeolus {
+ // Opt-in telemetry. The audio thread only publishes fixed-size records;
+-// the message thread owns the file and drains the bounded SPSC queue.
+-class CallbackProfiler : private juce::Timer
++// a background writer owns the file and drains the bounded SPSC queue.
++class CallbackProfiler
+ {
+ public:
+     struct Sample {
+@@ -16,15 +17,24 @@
+         int frames, voices, nativeXruns;
+     };
+     static std::unique_ptr<CallbackProfiler> create(const juce::String& path);
+-    ~CallbackProfiler() override;
++    ~CallbackProfiler();
++    uint64_t getDroppedCount() const noexcept;
++    bool hasWriteError() const noexcept;
++#if AEOLUS_TESTING
++    struct WriterTestState {
++        std::atomic<bool> paused {true}, entered {false}, finished {false};
++    };
++    static std::unique_ptr<CallbackProfiler> createForTesting(
++        const juce::String&, std::shared_ptr<WriterTestState>);
++#endif
+     void record(int64_t startNs, int64_t durationNs, double rate,
+                 int frames, int voices, int nativeXruns) noexcept;
+ private:
+-    explicit CallbackProfiler(std::unique_ptr<juce::FileOutputStream> output);
+-    void timerCallback() override;
+-    std::unique_ptr<juce::FileOutputStream> _output;
+-    RingBuffer<Sample, 4096> _queue;
+-    uint64_t _sequence = 0; // audio-thread-owned
+-    std::atomic<uint64_t> _dropped {0};
++    struct State;
++    explicit CallbackProfiler(std::shared_ptr<State>);
++    static void writeRecords(std::shared_ptr<State>) noexcept;
++    std::shared_ptr<State> _state;
++    std::thread _writer;
++    uint64_t _sequence = 0; // audio-thread-owned; producer stopped before destruction
+ };
+ }
+--- a/Source/aeolus/division.cpp
++++ b/Source/aeolus/division.cpp
+@@ -650,6 +650,17 @@
+     }
+ }
+ 
++void Division::emergencySilence()
++{
++    _keysState.reset();
++    _aggregatedKeysState.reset();
++    _bassCouplerNote = -1;
++    while (auto* voice = _activeVoices.first()) {
++        _activeVoices.remove(voice);
++        voice->resetAndReturnToPool();
++    }
++}
++
+ void Division::allNotesOff()
+ {
+     _keysState.reset();
+--- a/Source/aeolus/division.h
++++ b/Source/aeolus/division.h
+@@ -158,6 +158,7 @@
+     void triggerNoteInternal(int note);
+     void releaseNoteInternal(int note);
+     void allNotesOff();
++    void emergencySilence(); // audio owner only, after all workers finish
+ 
+     void handleControlMessage(const juce::MidiMessage& msg);
+ 
+--- a/Source/aeolus/engine.cpp
++++ b/Source/aeolus/engine.cpp
+@@ -18,6 +18,9 @@
+ // ----------------------------------------------------------------------------
+ 
+ #include "aeolus/engine.h"
++#include "aeolus/paniccontrol.h"
++#include <thread>
++#include <chrono>
+ #include <vector>
+ #include <cstdint>
+ #include <cstring>
+@@ -557,6 +560,7 @@
+ 
+     loadOrganState();
+     startTimer(50);
++    _panicControl = PanicControl::create(*this);
+ }
+ 
+ Engine::~Engine()
+@@ -564,6 +568,7 @@
+     // Hosts may destroy processors off the message thread. Wait for any timer
+     // callback already in flight, then unregister before destroying members.
+     const MessageManagerLock messageLock;
++    _panicControl.reset();
+     stopTimer();
+ 
+     if (_dspTeam != nullptr) {
+@@ -649,6 +654,15 @@
+         _startupFadeDone = false;   
+ 
+     prepareReverb();
++    // Playback is stopped; the reverb and interpolator are now fresh. A panic
++    // arriving during preparation must remain latched.
++    if (_panicMuted.load(std::memory_order_acquire)) {
++        // The UI producer cannot run concurrently with this message-thread
++        // device reprepare. Drain any event that raced the initial panic.
++        allNotesOff();
++        for (auto* division : _divisions) division->emergencySilence();
++    }
++    if (!isEmergencyPanicPending()) _panicMuted.store(false, std::memory_order_release);
+ }
+ 
+ void Engine::prepareReverb()
+@@ -712,6 +726,12 @@
+     float* origOutL = outL;
+     float* origOutR = outR;
+     int origNumFrames = numFrames;
++    if (isEmergencyMuted()) {
++        applyEmergencyPanic();
++        FloatVectorOperations::clear(origOutL, origNumFrames);
++        FloatVectorOperations::clear(origOutR, origNumFrames);
++        return;
++    }
+ 
+     processPendingNoteEvents();
+ 
+@@ -745,6 +765,12 @@
+             else
+                 processSubFrame();
+ 
++            if (isEmergencyMuted()) {
++                applyEmergencyPanic();
++                FloatVectorOperations::clear(origOutL, origNumFrames);
++                FloatVectorOperations::clear(origOutR, origNumFrames);
++                return;
++            }
+             jassert(_remainedSamples > 0);
+         }
+     }
+@@ -768,6 +794,11 @@
+         dsp::Limiter::process(_limiterSpec, _limiterState[1], origOutR, origOutR, origNumFrames);
+     }
+ 
++    if (isEmergencyMuted()) {
++        applyEmergencyPanic();
++        FloatVectorOperations::clear(origOutL, origNumFrames);
++        FloatVectorOperations::clear(origOutR, origNumFrames);
++    }
+     _volumeLevel.left.process(origOutL, origNumFrames);
+     _volumeLevel.right.process(origOutR, origNumFrames);
+ }
+@@ -781,6 +812,11 @@
+ 
+     processPendingNoteEvents();
+ 
++    if (isEmergencyMuted()) {
++        applyEmergencyPanic();
++        out.clear(startSample, numFrames);
++        return;
++    }
+     int outIdx = startSample;
+ 
+     while (numFrames > 0) {
+@@ -818,6 +854,11 @@
+ 
+     // Global volume across all the buses
+     const int rendered = outIdx - startSample;
++    if (isEmergencyMuted()) {
++        applyEmergencyPanic();
++        out.clear(startSample, rendered);
++        return;
++    }
+     applyVolume(out, startSample, rendered);
+ 
+     _volumeLevel.left.process(out, startSample, rendered);
+@@ -983,6 +1024,7 @@
+ 
+ void Engine::noteOn(int note, int midiChannel)
+ {
++    if (isEmergencyMuted()) return;
+     clearDivisionsTriggerFlag();
+ 
+     bool handled = false;
+@@ -1112,6 +1154,20 @@
+ }
+ 
+ 
++void Engine::applyEmergencyPanic()
++{
++    const unsigned epoch = _panicRequested.load(std::memory_order_acquire);
++    if (epoch == _panicAcknowledged.load(std::memory_order_acquire)) return;
++    _panicMuted.store(true, std::memory_order_release);
++    allNotesOff();
++    for (auto* division : _divisions) division->emergencySilence();
++    _batchQuanta = _batchNext = _remainedSamples = 0;
++    _subFrameBuffer.clear();
++    _interpolator.reset();
++    // Reverb tails remain muted until explicit device reprepare off the callback.
++    _panicAcknowledged.store(epoch, std::memory_order_release);
++}
++
+ void Engine::allNotesOff()
+ {
+     // Panic also cancels notes queued before it. Otherwise a GUI note-on can
+@@ -1300,6 +1356,7 @@
+ 
+ void Engine::timerCallback()
+ {
++    _guiProgress.fetch_add(1, std::memory_order_release);
+     // Audio/MIDI code only sets a flag. Timer lifetime is tied to the engine;
+     // no queued lambda can dereference an engine after destruction.
+     reportRealtimeStatus();
+@@ -1696,6 +1753,7 @@
+ 
+ void Engine::postNoteEvent(bool onOff, int note, int midiChannel)
+ {
++    if (isEmergencyMuted()) return;
+     if (!_pendingNoteEvents.send({onOff, note, midiChannel}))
+         _noteQueueOverflow.store(true);
+ }
+@@ -1873,6 +1931,12 @@
+ void Engine::runBatchJob(void* context, int jobIndex)
+ {
+     auto& engine = *static_cast<Engine*>(context);
++#if AEOLUS_TESTING
++    if (const auto delay = engine._panicTestDelay.load(std::memory_order_relaxed); delay && !engine.isEmergencyMuted()) {
++        engine._panicTestStarts.fetch_add(1, std::memory_order_release);
++        std::this_thread::sleep_for(std::chrono::microseconds(delay));
++    }
++#endif
+     auto& job = engine._batchJobs[(size_t) jobIndex];
+     const int numQuanta = engine._batchQuantaInJob;
+     const size_t numSamples = (size_t) numQuanta * SUB_FRAME_LENGTH;
+@@ -1883,7 +1947,7 @@
+     juce::uint64 alive = 0;
+     auto* voice = job.first;
+ 
+-    for (int i = 0; i < job.count && voice != nullptr; ++i) {
++    for (int i = 0; i < job.count && voice != nullptr && !engine.isEmergencyMuted(); ++i) {
+         auto* next = voice->next();
+         const int start = voice->getBatchStart();
+         const int end = voice->renderBatch(job.left, job.right, numQuanta);
+@@ -1938,6 +2002,12 @@
+     buildBatchJobs(_rtConfig.dspGroupSize);
+     _batchQuantaInJob = numQuanta;
+     _dspTeam->run((int) _batchJobs.size());
++    if (isEmergencyMuted()) {
++        // All in-flight jobs have now acknowledged; discard the cancelled batch.
++        _batchOutput.clear();
++        _batchQuanta = numQuanta;
++        return;
++    }
+ 
+     // Mix and modulate each quantum, as processSubFrame() does.
+     for (int q = 0; q < numQuanta; ++q) {
+--- a/Source/aeolus/engine.h
++++ b/Source/aeolus/engine.h
+@@ -44,6 +44,7 @@
+ AEOLUS_NAMESPACE_BEGIN
+ 
+ class Engine;
++class PanicControl;
+ 
+ /**
+  * @brief A global shared instance of the organ engine.
+@@ -350,6 +351,33 @@
+      * Release all the active voices immediately.
+      */
+     void allNotesOff();
++
++    // Audio callback publishes progress even when optional profiling is disabled.
++    static_assert(std::atomic<uint64_t>::is_always_lock_free, "Audio heartbeat must be lock-free");
++    void audioCallbackStarted() noexcept { _audioStarted.fetch_add(1, std::memory_order_relaxed); }
++    void audioCallbackCompleted() noexcept { _audioCompleted.fetch_add(1, std::memory_order_release); }
++    uint64_t getAudioCompleted() const noexcept { return _audioCompleted.load(std::memory_order_acquire); }
++    uint64_t getAudioStarted() const noexcept { return _audioStarted.load(std::memory_order_acquire); }
++    uint64_t getGuiProgress() const noexcept { return _guiProgress.load(std::memory_order_acquire); }
++    bool isAudioActive() const noexcept { return getAudioState() == 1; }
++    unsigned getAudioState() const noexcept { return _audioState.load(std::memory_order_acquire); }
++    void setAudioPreparing() noexcept { _audioState.store(2, std::memory_order_release); }
++    void setAudioActive(bool active) noexcept { _audioState.store(active ? 1u : 0u, std::memory_order_release); }
++
++    // Requests may come from the UI or the independent control thread.
++    unsigned requestEmergencyPanic() noexcept {
++        _panicMuted.store(true, std::memory_order_release);
++        return _panicRequested.fetch_add(1, std::memory_order_acq_rel) + 1;
++    }
++    bool isEmergencyPanicPending() const noexcept { return _panicRequested.load(std::memory_order_acquire) != _panicAcknowledged.load(std::memory_order_acquire); }
++    bool isEmergencyMuted() const noexcept { return _panicMuted.load(std::memory_order_acquire) || isEmergencyPanicPending(); }
++    unsigned getPanicRequested() const noexcept { return _panicRequested.load(std::memory_order_acquire); }
++    unsigned getPanicAcknowledged() const noexcept { return _panicAcknowledged.load(std::memory_order_acquire); }
++#if AEOLUS_TESTING
++    void setPanicTestDelay(unsigned delay) noexcept { _panicTestDelay.store(delay); _panicTestStarts.store(0); }
++    unsigned getPanicTestStarts() const noexcept { return _panicTestStarts.load(std::memory_order_acquire); }
++#endif
++
+ 
+     juce::MidiKeyboardState& getMidiKeyboardState() noexcept { return _midiKeyboardState; }
+ 
+@@ -513,6 +541,16 @@
+     int _reportedAudioGeneration = 0;
+     bool _reportedWorkers = false;
+ 
++    // Only the audio owner clears voices, after every worker has returned.
++    void applyEmergencyPanic();
++    std::atomic<uint64_t> _audioStarted {0}, _audioCompleted {0}, _guiProgress {0};
++    std::atomic<unsigned> _audioState {0}; // 0: deliberately closed, 1: active, 2: preparing
++    std::atomic<unsigned> _panicRequested {0}, _panicAcknowledged {0};
++    std::atomic<bool> _panicMuted {false};
++    std::unique_ptr<PanicControl> _panicControl;
++#if AEOLUS_TESTING
++    std::atomic<unsigned> _panicTestDelay {0}, _panicTestStarts {0};
++#endif
+     juce::MidiKeyboardState _midiKeyboardState;
+ 
+     Level _volumeLevel;
+--- a/Source/aeolus/voice.cpp
++++ b/Source/aeolus/voice.cpp
+@@ -125,6 +125,11 @@
+ 
+ void Voice::process(float* outL, float* outR)
+ {
++    if (_engine.isEmergencyMuted()) {
++        juce::FloatVectorOperations::clear(outL, SUB_FRAME_LENGTH);
++        juce::FloatVectorOperations::clear(outR, SUB_FRAME_LENGTH);
++        return;
++    }
+     memset(_buffer, 0, sizeof(float) * SUB_FRAME_LENGTH);
+ 
+     const auto gain = _state.gain;
+@@ -238,6 +243,7 @@
+     float right[SUB_FRAME_LENGTH];
+ 
+     for (int q = _batchStart; q < numQuanta; ++q) {
++        if (_engine.isEmergencyMuted()) return q;
+         // Same order as the serial renderer: the division's control step
+         // releases the voice before the quantum is rendered.
+         if (q == _releaseQuantum)
+--- a/Source/ui/DivisionView.cpp
++++ b/Source/ui/DivisionView.cpp
+@@ -131,7 +131,7 @@
+ 
+         _panicButton.onClick = [this]()
+         {
+-            _division->getEngine().allNotesOff();
++            _division->getEngine().requestEmergencyPanic();
+             // If your Engine uses a different panic API, use that instead
+         };
+ 
+--- a/tests/AudioTests.cpp
++++ b/tests/AudioTests.cpp
+@@ -37,6 +37,8 @@
+ {
+     juce::MessageManager::getInstance()->runDispatchLoopUntil(milliseconds);
+ }
++#include "CallbackProfilerTests.h"
++
+ void queueTests()
+ {
+     aeolus::RingBuffer<int, 7> q;
+@@ -140,18 +142,24 @@
+     const auto file = aeolus::getTestDataDirectory().getChildFile("callback-profile-test.csv");
+     file.deleteFile();
+     auto profiler = aeolus::CallbackProfiler::create(file.getFullPathName());
+-    check(profiler != nullptr, "profiler could not open fresh test CSV");
+-    check(aeolus::CallbackProfiler::create(file.getFullPathName()) == nullptr, "profiler overwrote existing file");
++    check(profiler != nullptr, "profiler could not start for fresh test CSV");
+     heapOperations = 0; countHeap = true;
+-    for (int i = 0; i < 5000; ++i)
+-        profiler->record(i*12000000LL, i == 0 ? 12000000 : 9000000, 44100, 512, 399, i/1000);
++    profiler->record(0,12000000,44100,512,399,0);
+     countHeap = false;
+     check(heapOperations == 0, "profiling allocated/freed on audio producer");
+     profiler.reset();
+-    const auto text = file.loadFileAsString();
+-    check(text.contains("sequence,start_ns,duration_ns") && text.contains("# dropped_total=905"),
+-          "profiler did not report bounded queue overflow");
++    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(3);
++    juce::String text;
++    do {
++        text=file.loadFileAsString();
++        if (text.contains("# dropped_total=")) break;
++        std::this_thread::sleep_for(std::chrono::milliseconds(2));
++    } while (std::chrono::steady_clock::now()<deadline);
++    check(text.contains("sequence,start_ns,duration_ns") && text.contains("# dropped_total=0"),
++          "profiler did not finish its background CSV");
+     check(text.contains("0,0,12000000,44100.000,512,399,0"), "profiler sample data changed");
++    check(aeolus::CallbackProfiler::create(file.getFullPathName()) == nullptr, "profiler accepted an existing file");
++    check(file.loadFileAsString()==text, "profiler overwrote an existing file");
+ }
+ void spatialTests()
+ {
+@@ -690,6 +698,71 @@
+ }
+ 
+ //==============================================================================
++
++void emergencyPanicTests()
++{
++    for (const int workers : {0, 3}) for (const float rate : {44100.0f, 48000.0f}) {
++        ScopedEnvironment environment({{"AEOLUS_DSP_WORKERS", std::to_string(workers)}, {"AEOLUS_MAX_VOICES", "1024"}});
++        AeolusAudioProcessor processor;
++        auto& engine = processor.getEngine();
++        for (int d=0; d<engine.getDivisionCount(); ++d) {
++            auto* division = engine.getDivisionByIndex(d);
++            division->setMIDIChannelsMask(1);
++            for (int s=0; s<division->getStopsCount(); ++s) division->enableStop(s, true);
++            for (int l=0; l<division->getLinksCount(); ++l) division->enableLink(l, false);
++        }
++        processor.prepareToPlay(rate,512);
++        processor.getParametersContainer().reverbWet->setValueNotifyingHost(.42f);
++        juce::AudioBuffer<float> audio(aeolus::N_OUTPUT_CHANNELS,512);
++        juce::MidiBuffer midi;
++        for (int note : {45,47,48,50,52,53,79,81,83,84}) midi.addEvent(juce::MidiMessage::noteOn(1,note,1.0f),0);
++        for (int block=0;block<32;++block) {processor.processBlock(audio,midi);midi.clear();}
++        check(engine.getVoiceCount()>400,"panic setup did not create dense registration");
++        engine.setPanicTestDelay(2000);
++        std::atomic<bool> observed {false};
++        std::thread requester([&] {
++            const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);
++            while (!engine.getPanicTestStarts() && std::chrono::steady_clock::now()<deadline) std::this_thread::yield();
++            observed.store(engine.getPanicTestStarts()>0);
++            processor.panic();
++        });
++        heapOperations=0;countHeap=true;
++        processor.processBlock(audio,midi);
++        countHeap=false;
++        requester.join();
++        check(heapOperations==0,"emergency panic allocated on the audio coordinator");
++        engine.setPanicTestDelay(0);
++        // 48 kHz can consume an existing interpolator sample before a job begins.
++        if (engine.isEmergencyPanicPending()) processor.processBlock(audio,midi);
++        check(observed.load(),"panic request did not overlap an in-flight job");
++        check(!engine.isEmergencyPanicPending(),"panic was not acknowledged after worker completion");
++        check(engine.getAudioStarted()>0 && engine.getAudioCompleted()==engine.getAudioStarted(),"callback heartbeat did not finish during panic");
++        check(engine.isAudioActive(),"prepared processor did not publish active device state");
++        check(engine.isEmergencyMuted() && engine.getVoiceCount()==0,"panic did not latch silence and reclaim voices");
++        for (int block=0;block<12;++block) {
++            engine.postNoteEvent(true, 73, 1);
++            midi.addEvent(juce::MidiMessage::noteOn(1,72,1.0f),17);
++            processor.processBlock(audio,midi);midi.clear();
++            check(audio.getMagnitude(0,audio.getNumSamples())==0.0f,"panic leaked dry/reverb audio");
++            check(engine.getVoiceCount()==0,"queued MIDI retriggered while panic was latched");
++        }
++        processor.releaseResources();
++        processor.prepareToPlay(rate,512);
++        check(!engine.isEmergencyMuted(),"device reprepare failed to resume after acknowledged panic");
++        processor.processBlock(audio,midi);
++        check(engine.getVoiceCount()==0,"notes queued while muted replayed after resume");
++        check(audio.getMagnitude(0,audio.getNumSamples())<=8.1e-5f,"old audio leaked after resume");
++        midi.addEvent(juce::MidiMessage::noteOn(1,60,1.0f),17);
++        bool sounded=false;
++        for (int block=0;block<32;++block) {
++            processor.processBlock(audio,midi);midi.clear();
++            sounded |= audio.getMagnitude(0,audio.getNumSamples())>1e-5f;
++        }
++        check(sounded && engine.getVoiceCount()>0,"new notes did not play after explicit resume");
++    }
++    std::cout<<"Emergency panic: delayed in-flight jobs acknowledged, voices reclaimed, wet output silent, resume passed\n";
++}
++
+ // Offline engine benchmark: aeolus_tests --benchmark-engine [notes] [seconds]
+ // Uses the environment as given (AEOLUS_DSP_WORKERS etc.).
+ 
+@@ -830,7 +903,8 @@
+             return 0;
+         }
+         delayBoundedResetTests();
+-        batchRendererTests();
++        callbackProfilerTests();
++        batchRendererTests(); emergencyPanicTests();
+         profilerTests(); queueTests(); simdTests(); scalarConvolutionTest(); reverbTests(); concurrentReverbTests(); midiTests(); lifetimeTests();
+         std::cout << "Audio/MIDI regressions passed\n";
+     } catch (const std::exception& e) {
+--- /dev/null
++++ b/tests/CallbackProfilerTests.h
+@@ -0,0 +1,63 @@
++// Copyright (C) 2026 Aeolus fork contributors
++// SPDX-License-Identifier: GPL-3.0-or-later
++#pragma once
++#include "aeolus/callbackprofiler.h"
++
++// Included inside AudioTests' anonymous namespace, using check()/pump().
++void callbackProfilerTests()
++{
++    using Profiler = aeolus::CallbackProfiler;
++    const auto directory = juce::File::getSpecialLocation(juce::File::tempDirectory)
++        .getNonexistentChildFile("aeolus-profiler-test", {}, false);
++    check(directory.createDirectory().wasOk(), "cannot create owned profiler test directory");
++    struct Cleanup {
++        juce::File directory;
++        ~Cleanup() { directory.deleteRecursively(); }
++    } cleanup {directory};
++    const auto csv = directory.getChildFile("timing.csv");
++    auto gate = std::make_shared<Profiler::WriterTestState>();
++    auto profiler = Profiler::createForTesting(csv.getFullPathName(), gate);
++    const auto waitUntil = [](const auto& ready) {
++        const auto deadline = std::chrono::steady_clock::now()+std::chrono::seconds(3);
++        while (!ready() && std::chrono::steady_clock::now()<deadline)
++            std::this_thread::sleep_for(std::chrono::milliseconds(2));
++        check(ready(), "profiler writer transition timed out");
++    };
++    waitUntil([&] { return gate->entered.load(); });
++    heapOperations=0; countHeap=true;
++    for (int i=0; i<6000; ++i) profiler->record(i, 1, 44100, 512, 12, 0);
++    countHeap=false;
++    check(heapOperations==0, "profiler callback allocated or freed");
++    check(profiler->getDroppedCount()==1905, "blocked writer did not bound its queue and count overflow");
++    struct Pulse : juce::Timer {
++        int ticks=0;
++        void timerCallback() override { ++ticks; }
++    } pulse;
++    pulse.startTimer(5);
++    pump(80);
++    pulse.stopTimer();
++    check(pulse.ticks>=3, "blocked profiler writer prevented GUI timer progress");
++    const auto before=std::chrono::steady_clock::now();
++    profiler.reset();
++    check(std::chrono::steady_clock::now()-before<std::chrono::milliseconds(500),
++          "blocked writer made profiler shutdown unbounded");
++    check(!gate->finished.load(), "blocked writer gate was not exercised");
++    gate->paused.store(false);
++    waitUntil([&] { return gate->finished.load(); });
++    const auto text=csv.loadFileAsString();
++    check(text.startsWith("sequence,start_ns,duration_ns,sample_rate,frames,voices,native_xruns"),
++          "profiler CSV header changed");
++    check(text.contains("0,0,1,44100.000,512,12,0") && text.contains("4094,4094,1,44100.000,512,12,0"),
++          "profiler lost or reordered queued records during detached finalization");
++    check(text.contains("# dropped_total=1905"), "profiler did not preserve overflow footer");
++    check(!Profiler::create(csv.getFullPathName()), "profiler accepted an existing file");
++    check(csv.loadFileAsString()==text, "profiler overwrote an existing file");
++    // Simulate a path becoming invalid after construction but before background open.
++    auto badGate=std::make_shared<Profiler::WriterTestState>();
++    auto failed=Profiler::createForTesting(directory.getChildFile("absent/timing.csv").getFullPathName(),badGate);
++    badGate->paused.store(false);
++    waitUntil([&] { return failed->hasWriteError(); });
++    failed.reset();
++    waitUntil([&] { return badGate->finished.load(); });
++    std::cout<<"Profiler: stalled writer leaves GUI/audio publication live; bounded teardown, overflow and I/O errors passed\n";
++}

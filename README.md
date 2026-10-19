@@ -109,7 +109,7 @@ chmod +x Standalone/Aeolus
 ./Standalone/Aeolus
 ```
 
-These are dynamically linked desktop Linux executables built against Ubuntu 22.04 libraries; they are not Android or 32-bit ARM builds. ARM64 CI tests do not establish VIM4 audio-device compatibility or performance. A graphical desktop/X11 environment and compatible system libraries are required. On the board, `uname -m` should report `aarch64`; use `ldd Standalone/Aeolus` to identify missing libraries. If the installed OS has older libraries, build from source on that board using the commands above rather than copying the x86-64 executable. ARM currently uses the scalar DSP implementation.
+These are dynamically linked desktop Linux executables built against Ubuntu 22.04 libraries; they are not Android or 32-bit ARM builds. ARM64 CI tests do not establish VIM4 audio-device compatibility or performance. A graphical desktop/X11 environment and compatible system libraries are required. On the board, `uname -m` should report `aarch64`; use `ldd Standalone/Aeolus` to identify missing libraries. If the installed OS has older libraries, build from source on that board using the commands above rather than copying the x86-64 executable. ARM64 builds enable the validated NEON kernels described below.
 
 The checked-in ASIO directory contains download instructions only. An ASIO-enabled Windows build requires the SDK separately; Windows CI currently downloads the legacy SDK. Read [the third-party notices](THIRD_PARTY_NOTICES.md) before distributing such a build.
 
@@ -141,7 +141,7 @@ Copy the entire generated folder, including notices, source archive and checksum
 
 Read [AGENTS.md](AGENTS.md) for source layout, real-time audio requirements, configuration handling and verification guidance; [CLAUDE.md](CLAUDE.md) adds Claude-specific guidance. Preserve custom organs and use isolated user data for tests.
 
-Build the optional regression executable with `-DAEOLUS_BUILD_TESTS=ON`, then run `ctest --test-dir build --output-on-failure` (use `xvfb-run -a` on headless Linux). Tests use an isolated profile under the build directory; normal builds do not enable the test profile override. The scripts in `Model/` are separate offline modelling experiments. Changes to MIDI timing, reverb, routing or performance need deterministic audio comparisons and actual device checks; successful compilation alone does not establish sound quality, latency or xrun behavior. Follow [the distribution checklist](docs/DISTRIBUTION_CHECKLIST.md) when packaging releases, to verify transitive dependency notices and complete corresponding source delivery. CI now includes the root license texts and asset notices alongside its application artifacts.
+Build the optional regression executable with `-DAEOLUS_BUILD_TESTS=ON`, then run `ctest --test-dir build --output-on-failure` (use `xvfb-run -a` on headless Linux). Tests use an isolated profile under the build directory; normal builds do not enable the test profile override. When launching the Linux test-enabled standalone, also set `AEOLUS_TEST_SETTINGS_DIRECTORY` to an absolute, test-owned settings directory; `XDG_CONFIG_HOME` alone does not redirect JUCE's standalone preferences. The scripts in `Model/` are separate offline modelling experiments. Changes to MIDI timing, reverb, routing or performance need deterministic audio comparisons and actual device checks; successful compilation alone does not establish sound quality, latency or xrun behavior. Follow [the distribution checklist](docs/DISTRIBUTION_CHECKLIST.md) when packaging releases, to verify transitive dependency notices and complete corresponding source delivery. CI now includes the root license texts and asset notices alongside its application artifacts.
 
 ## Audio reliability fixes — October 2026
 
@@ -149,10 +149,84 @@ MIDI processing now renders up to each event's host sample offset, retaining the
 
 Reverb changes prepare a replacement on the message thread, transfer ownership through atomic mailboxes and crossfade over 50 ms. Old convolution engines are destroyed outside the callback. Impulse responses are resampled to the device rate because convolution follows output resampling. Rapid requests coalesce to the latest selection; preparation can briefly occupy the setup UI, and crossfades temporarily process two reverbs. The existing wet-zero bypass remains available.
 
-Linux x86 builds can dispatch to the existing SSE3 kernels while retaining scalar fallback; ARM remains scalar. CPU detection checks the correct SSE feature bits and Windows AVX/FMA dispatch checks OS register-state support. These changes do not establish a measured performance improvement on target hardware.
+Linux x86 builds can dispatch to the existing SSE3 kernels while retaining scalar fallback. CPU detection checks the correct SSE feature bits and Windows AVX/FMA dispatch checks OS register-state support. These changes do not establish a measured performance improvement on target hardware.
 
 ARM64 builds use NEON arithmetic kernels by default (`AEOLUS_ENABLE_NEON=OFF` retains scalar dispatch for comparisons). These accelerate existing convolution arithmetic without changing voice limits, precision or reverb settings. See [ARM kernel validation](docs/ARM_OPTIMIZATION.md#arm64-neon-arithmetic).
 
 `AEOLUS_ENABLE_SPATIAL_NEON` selects paired-ear NEON spatial filtering on supported ARM64 builds (`OFF` retains the scalar spatial reference). The global `AEOLUS_ENABLE_NEON=OFF` also disables this path. See [spatial filter comparison](docs/ARM_OPTIMIZATION.md#paired-ear-spatial-filtering).
 
-A Linux-only, offline multicore scaling probe is available in test-enabled builds. See [multicore experiment and limits](docs/ARM_OPTIMIZATION.md#multicore-scaling-experiment). Live voice rendering remains serial.
+## Integrated multicore rendering and emergency recovery
+
+The tested Claude batch renderer is integrated into the normal source/build. On
+Linux stereo builds, opt in with `AEOLUS_DSP_WORKERS` (0 uses the grouped renderer
+on the audio thread; 1–15 adds persistent workers). Unset retains the serial
+reference. For example, on a machine with sufficient available CPU resources:
+
+```sh
+AEOLUS_DSP_WORKERS=3 AEOLUS_MAX_VOICES=1024 ./build/Aeolus_artefacts/Release/Standalone/Aeolus
+```
+
+This example does not pin cores or request FIFO scheduling. Worker dispatch falls
+back to the same serial jobs before publication if worker setup fails or workers
+would run below the audio thread's real-time priority. Once published, all jobs
+must finish before buffers/voices are reused. No deadline miss silently discards
+worker output. Non-Linux builds retain serial rendering until native worker wakeup
+and scheduling are validated. See [multicore controls](docs/MULTICORE.md).
+
+The renderer retains 64-sample synthesis steps, MIDI offsets, envelopes, reverb,
+precision and release tails. Per-voice noise streams avoid sharing random state
+across workers; grouped summation is deterministic across worker counts, with
+small rounding differences against the serial summation order. Bounded readable
+ring clears are enabled by default; `AEOLUS_BOUNDED_VOICE_CLEAR=OFF` restores full
+clears for comparison. Existing pool exhaustion behavior is unchanged; the planned
+whole-note admission limit/menu is not implemented.
+
+**Panic / Resume** is available in the console footer, independently of whether a
+pedal division exists. Panic requests silence and waits for in-flight work before
+clearing voices. Output, including reverb, stays muted until explicit Resume.
+Ordinary device changes do not clear that latch, and a newer Panic invalidates a
+queued Resume. Resume restarts the standalone audio device outside processing.
+Existing stop-model replacement is deferred until active voices and release tails
+finish, then uses a callback barrier before replacing pipe storage. Fresh model
+variants are prepared before publication without cutting existing voices. Neither
+operation latches emergency Panic.
+
+Normal Linux standalone builds automatically start an unprivileged independent
+watchdog from the adjacent `Standalone/helpers` directory. Runtime requirements
+are **Python 3.9+ with pidfd support**, a suitable Linux kernel (5.3+), and writable
+`/dev/shm`. Keep the helper files with the executable when copying it. The footer
+shows whether the independent watchdog is armed; otherwise it indicates local
+Panic/Resume only. An independent GTK Panic/Resume window is also opened when
+Python PyGObject/GTK 3 and a graphical display are available; it is optional for
+the headless watchdog. `AEOLUS_PANIC_PANEL=0` hides that companion window.
+
+The watchdog requires completed audio callbacks before arming. It observes
+independent HEALTH 2 counters, never the profiler CSV. A five-second audio stall
+requests Panic; a missing correlated acknowledgement escalates to termination of
+that exact app. An unacknowledged manual Panic is also supervised. Device setup
+and edits have a bounded 30-second grace; shutdown has a bounded 30-second grace.
+UI-only stalls are reported separately. There is no automatic app restart or
+kernel-freeze recovery. `AEOLUS_AUTO_SAFETY=0` explicitly disables automatic Linux
+supervision; test builds require `AEOLUS_AUTO_SAFETY=1` to opt in, while controlled
+profiling launchers may supply their own endpoint/supervisor.
+
+**VIM4 scheduling finding:** pinning FIFO-70 audio to CPU 0 could starve USB/MIDI
+servicing there during saturation. In the recorded manual comparison, moving the
+USB controller IRQ to efficiency CPU 4 allowed note releases to clear overload,
+including runs reaching the 1024-voice pool cap. This does not establish clean
+1024-voice playback. No persistent IRQ change is installed by Aeolus. Avoid
+reusing the VIM4's core numbers on other hardware, and do not apply its dedicated
+FIFO profile without verifying USB/OS/recovery placement. See [the investigation
+and temporary procedure](docs/HANG_INVESTIGATION_2026-10-18.md).
+
+Rejected spatial/snapshot/nonblocking experiments remain historical research,
+not production build targets. The installer menu, persistent system profiles,
+core-selection UI, whole-note admission controls, colored meters and one-button
+cold startup remain [roadmap work](AEOLUS_FEATURES.md#16-installer-setup-hardware-profiles-and-one-button-startup--agreed-2026-10-18).
+
+Current integration verification passed on Linux x86-64 and the VIM4 ARM64:
+2/2 CTest tests on each, all 33 Python tests on ARM (one permission-dependent case
+skipped on x86), and silent real-device Panic/Resume, processor-replacement,
+normal-close and deliberate-freeze recovery checks. See [the recorded checks and
+limits](docs/ARM_OPTIMIZATION.md#integration-verification). Normal application and
+organ files on the VIM4 were preserved; this is not a new voice-capacity result.

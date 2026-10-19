@@ -34,7 +34,6 @@ AeolusAudioProcessor::AeolusAudioProcessor()
     , _engine{}
     , _parameters(*this)
     , _processLoad{0.0f}
-    , _panicRequest{false}
     , _callbackProfiler(aeolus::CallbackProfiler::create(
           SystemStats::getEnvironmentVariable("AEOLUS_TIMING_FILE", {})))
 {
@@ -43,8 +42,36 @@ AeolusAudioProcessor::AeolusAudioProcessor()
     aeolus::EngineGlobal::getInstance()->registerProcessorProxy(this);
 }
 
+void AeolusAudioProcessor::suspendForEdit(bool suspended)
+{
+    if(suspended) {
+        _stateBeforeEdit=_engine.getAudioState();
+        _engine.setAudioPreparing();
+        suspendProcessing(true); // JUCE waits for the current callback lock.
+    } else {
+        suspendProcessing(false);
+        _engine.restoreAudioState(_stateBeforeEdit);
+    }
+}
+
+void AeolusAudioProcessor::resumeAudio()
+{
+#if JucePlugin_Build_Standalone
+    jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
+    const auto epoch=_engine.getPanicRequested();
+    if(!_engine.isEmergencyMuted() || !_engine.authorizeEmergencyResume(epoch)) return;
+    if(auto* holder=juce::StandalonePluginHolder::getInstance()) {
+        holder->deviceManager.closeAudioDevice();
+        holder->deviceManager.restartLastAudioDevice();
+    }
+    _engine.cancelEmergencyResume();
+#endif
+}
+
 AeolusAudioProcessor::~AeolusAudioProcessor()
 {
+    _engine.beginShutdown();
+    const juce::MessageManagerLock messageLock;
     _callbackProfiler.reset();
     // If we don't do this there is a leaked AccessibilityHandler instance detected.
     _engine.getMidiKeyboardState().removeListener(this);
@@ -122,11 +149,14 @@ void AeolusAudioProcessor::changeProgramName(int /* index */, const juce::String
 //==============================================================================
 void AeolusAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
+    _engine.setAudioPreparing();
     _engine.prepareToPlay((float)sampleRate, samplesPerBlock);
+    _engine.setAudioActive(true);
 }
 
 void AeolusAudioProcessor::releaseResources()
 {
+    _engine.setAudioActive(false);
     // When playback stops, you can use this as an opportunity to free up any
     // spare memory, etc.
 }
@@ -223,6 +253,11 @@ void AeolusAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
 {
     using namespace std::chrono;
 
+    // Opt-in real-time priority/affinity for the audio thread, applied once
+    // per thread (AEOLUS_AUDIO_RT_PRIORITY, AEOLUS_AUDIO_CPUS).
+    aeolus::rt::applyAudioThreadPolicy(_engine.getRealtimeConfig());
+
+    _engine.audioCallbackStarted();
     auto timestampStart = steady_clock::now();
 
     juce::ScopedNoDenormals noDenormals;
@@ -238,8 +273,6 @@ void AeolusAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear(i, 0, buffer.getNumSamples());
 
-    if (_panicRequest.exchange(false))
-        _engine.allNotesOff();
 
     // Render up to each event, preserving the host's sample positions. The
     // synthesizer retains its existing 64-sample internal processing quantum.
@@ -251,6 +284,8 @@ void AeolusAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
         position = eventPosition;
     }
     renderRange(buffer, position, buffer.getNumSamples() - position);
+
+    if (_engine.isEmergencyMuted()) buffer.clear();
 
     int nativeXruns = -1;
     if (_callbackProfiler != nullptr) {
@@ -273,6 +308,7 @@ void AeolusAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
         _callbackProfiler->record(duration_cast<nanoseconds>(timestampStart.time_since_epoch()).count(),
             duration_cast<nanoseconds>(timestampStop - timestampStart).count(),
             _engine.getSampleRate(), buffer.getNumSamples(), _engine.getVoiceCount(), nativeXruns);
+    _engine.audioCallbackCompleted();
 }
 
 void AeolusAudioProcessor::renderRange(AudioBuffer<float>& buffer, int start, int count)

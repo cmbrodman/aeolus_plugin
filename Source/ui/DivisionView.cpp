@@ -131,7 +131,7 @@ DivisionView::DivisionView(aeolus::Division* division)
 
         _panicButton.onClick = [this]()
         {
-            _division->getEngine().allNotesOff();
+            _division->getEngine().requestEmergencyPanic();
             // If your Engine uses a different panic API, use that instead
         };
 

@@ -19,6 +19,8 @@
 
 #include "aeolus/dsp/delay.h"
 
+#include <atomic>
+
 AEOLUS_NAMESPACE_BEGIN
 
 namespace dsp {
@@ -41,6 +43,17 @@ void DelayLine::reset()
     ::memset(_buffer.data(), 0, sizeof (float) * _buffer.size());
 }
 
+void DelayLine::resetForReadIndex(int maxReadIndex)
+{
+    if (maxReadIndex < 0 || size_t(maxReadIndex) + 1 >= _buffer.size()) {
+        reset();
+        return;
+    }
+
+    _writeIndex = 0;
+    ::memset(_buffer.data(), 0, sizeof (float) * (size_t(maxReadIndex) + 1));
+}
+
 void DelayLine::write (float x)
 {
     if (_writeIndex == 0)
@@ -61,6 +74,26 @@ float DelayLine::read(float delay) const
     const auto b = index < _buffer.size() - 1 ? _buffer[index + 1] : _buffer[0];
 
     return math::lerp(a, b, frac);
+}
+
+#if AEOLUS_TESTING
+static std::atomic<bool> fullVoiceClearForTesting { false };
+
+void setFullVoiceClearForTesting(bool shouldUseFullClear) noexcept
+{
+    fullVoiceClearForTesting.store(shouldUseFullClear);
+}
+#endif
+
+bool useFullVoiceClear() noexcept
+{
+#if AEOLUS_FULL_VOICE_CLEAR
+    return true;
+#elif AEOLUS_TESTING
+    return fullVoiceClearForTesting.load(std::memory_order_relaxed);
+#else
+    return false;
+#endif
 }
 
 float DelayLine::readNearest(int delay) const

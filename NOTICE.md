@@ -53,3 +53,4 @@ See [the distribution checklist](docs/DISTRIBUTION_CHECKLIST.md) before publishi
 - **2026-10-17:** Added ARM64 NEON arithmetic kernels and scalar-comparison tests for mixing, dot products, complex multiplication and FFT butterflies. Existing x86 dispatch and organ assets are unchanged.
 
 - **2026-10-17:** Added paired-ear ARM64 NEON spatial filtering with a scalar-reference build switch. Existing coefficients, per-ear histories, delay lines, attenuation, precision and tail handling are retained.
+- **2026-10-18:** Integrated the hardware-tested multicore batch renderer, bounded delay clearing and independent Linux Panic/HEALTH watchdog into the normal build, with background telemetry, explicit Resume and lifecycle/scheduling fixes. Added regression coverage and preserved original sound-processing paths. Installer controls and persistent system setup remain planned; hardware observations and validation limits are documented separately.

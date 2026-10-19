@@ -158,10 +158,20 @@ public:
     void triggerNoteInternal(int note);
     void releaseNoteInternal(int note);
     void allNotesOff();
+    void emergencySilence(); // audio owner only, after all workers finish
 
     void handleControlMessage(const juce::MidiMessage& msg);
 
     bool process(juce::AudioBuffer<float>& targetBuffer, juce::AudioBuffer<float>& voiceBuffer);
+
+    /**
+     * Per-quantum key, release and trigger handling, as done at the start of
+     * process(). With batchQuantum >= 0 (batch renderer), releases are
+     * scheduled for that quantum instead of applied, and new voices start
+     * sounding at that quantum. batchLimit is reduced so that the batch ends
+     * at the quantum in which a released voice finishes.
+     */
+    void controlStep(int batchQuantum = -1, int* batchLimit = nullptr);
     void modulate(juce::AudioBuffer<float>& targetBuffer, const juce::AudioBuffer<float>& tremulantBuffer);
 
     void releaseVoicesOfDisabledStops();
@@ -256,6 +266,12 @@ private:
     /// times by the same not on/off even, which is the case
     /// for linked divisions.
     bool _triggerFlag;
+
+    /// Quantum of the batch whose control step is running, or -1.
+    int _batchQuantum{ -1 };
+
+    /// Batch length, shortened when a scheduled release lets a voice finish.
+    int* _batchLimit{ nullptr };
 
     Level _volumeLevel;
 

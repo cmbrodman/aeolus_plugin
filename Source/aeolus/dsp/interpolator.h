@@ -40,6 +40,10 @@ public:
     void setRatio(float r) noexcept { _ratio = r; }
     float getRatio() const noexcept { return _ratio; }
 
+    /// Current read position between the two newest input samples. Used to
+    /// predict how many input samples a given output length consumes.
+    float getFraction() const noexcept { return _accFrac; }
+
     void setNumberOfChannels(size_t n);
     size_t getNumberOfChannels() const noexcept { return _acc.size(); }
 

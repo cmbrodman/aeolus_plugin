@@ -52,7 +52,12 @@ public:
     void release();
     bool isActive() const noexcept;
 
+    /// Process using the process-wide shared noise generator (original behaviour).
     void process(float* out, int numFrames);
+
+    /// Process drawing noise from the supplied generator. The generator must
+    /// not be used concurrently by another thread.
+    void process(float* out, int numFrames, juce::Random& rnd);
 
 private:
 
