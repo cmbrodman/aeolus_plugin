@@ -37,7 +37,7 @@ var Sequencer::DivisionState::getPersistentState() const
         stopsArr.add(s);
 
     obj->setProperty("stops", stopsArr);
-    obj->setProperty("tremulant", tremulant);
+    obj->setProperty("tremulant", bool(tremulant));
 
     Array<var> linksArr;
 
@@ -122,7 +122,7 @@ var Sequencer::getPersistentState() const
 
     sequencerObj->setProperty("steps", stepsArr);
     sequencerObj->setProperty("current_step", getCurrentStep());
-    sequencerObj->setProperty("dirty", _dirty);
+    sequencerObj->setProperty("dirty", bool(_dirty));
 
     return var{sequencerObj};
 }
@@ -162,7 +162,7 @@ void Sequencer::captureCurrentStep()
 
 void Sequencer::captureStateToStep(int index)
 {
-    jassert(isPositiveAndBelow(index, (int)_steps.size()));
+    if (!isPositiveAndBelow(index, (int)_steps.size())) return;
 
     captureState(_steps[index]);
 
@@ -174,7 +174,7 @@ void Sequencer::captureStateToStep(int index)
 
 void Sequencer::setStep(int index, bool captureCurrentState)
 {
-    jassert(index >= 0 && index < (int)_steps.size());
+    if (!isPositiveAndBelow(index, (int)_steps.size())) return;
 
     if (captureCurrentState)
         captureCurrentStep();
@@ -215,7 +215,12 @@ void Sequencer::initFromEngine()
 void Sequencer::captureState(OrganState& organState)
 {
     const auto numDivisions = _engine.getDivisionCount();
-    jassert(organState.divisions.size() == numDivisions);
+    if (organState.divisions.size() != (size_t)numDivisions) return;
+    for (int d = 0; d < numDivisions; ++d) {
+        auto* division = _engine.getDivisionByIndex(d);
+        if (organState.divisions[d].stops.size() != (size_t)division->getStopsCount()
+            || organState.divisions[d].links.size() != (size_t)division->getLinksCount()) return;
+    }
 
     for (int divIdx = 0; divIdx < numDivisions; ++divIdx) {
         auto* const division = _engine.getDivisionByIndex(divIdx);
@@ -241,13 +246,18 @@ void Sequencer::captureState(OrganState& organState)
 void Sequencer::recallState(const OrganState& organState)
 {
     const auto numDivisions = _engine.getDivisionCount();
-    jassert(organState.divisions.size() == numDivisions);
+    if (organState.divisions.size() != (size_t)numDivisions) return;
+    for (int d = 0; d < numDivisions; ++d) {
+        auto* division = _engine.getDivisionByIndex(d);
+        if (organState.divisions[d].stops.size() != (size_t)division->getStopsCount()
+            || organState.divisions[d].links.size() != (size_t)division->getLinksCount()) return;
+    }
 
     for (int divIdx = 0; divIdx < numDivisions; ++divIdx) {
         auto* const division = _engine.getDivisionByIndex(divIdx);
 
         jassert(organState.divisions[divIdx].stops.size() == division->getStopsCount());
-
+        division->_applyingPreset = true;
         for (int i = 0; i < division->getStopsCount(); ++i)
             division->enableStop(i, organState.divisions[divIdx].stops[i]);
 
@@ -257,8 +267,15 @@ void Sequencer::recallState(const OrganState& organState)
             division->enableLink(i, organState.divisions[divIdx].links[i]);
     }
 
-    for (int divIdx = 0; divIdx < numDivisions; ++divIdx)
-        _engine.getDivisionByIndex(divIdx)->syncActivePreset();
+    for (int divIdx = 0; divIdx < numDivisions; ++divIdx) {
+        auto* division = _engine.getDivisionByIndex(divIdx);
+        division->_applyingPreset = false;
+        division->syncActivePreset();
+    }
 }
 
+AEOLUS_NAMESPACE_END
+
+AEOLUS_NAMESPACE_BEGIN
+bool Sequencer::postControl(ControlAction action, int index, int value) { return _engine.postUIControl(action, -1, index, value); }
 AEOLUS_NAMESPACE_END

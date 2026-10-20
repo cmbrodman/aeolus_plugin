@@ -3,10 +3,13 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "ui/SequencerView.h"
+#include "ui/StopEditorComponent.h"
+#include "ui/MidiSettingsComponent.h"
 #include "aeolus/simd.h"
 #include "aeolus/simd_neon.h"
 #include "aeolus/dsp/spatial.h"
 #include "aeolus/dsp/delay.h"
+#include "aeolus/dsp/convolve.h"
 #include <algorithm>
 #include <atomic>
 #include <iomanip>
@@ -498,6 +501,7 @@ struct RenderResult
     int peakVoices = 0;
     int finalVoices = 0;
     int poolSize = 0;
+    uint64_t rejectedNotes = 0;
     juce::uint64 triggers = 0;
     size_t heapOperations = 0;
     aeolus::DspTeam::Stats stats;
@@ -513,7 +517,7 @@ struct ScriptEvent
 
 // Couplers from later divisions (II -> III, I -> II/III, Pedal -> manuals)
 // exercise control changes that take effect one quantum into a batch.
-RenderResult renderScript(const std::map<std::string, std::string>& environment, float rate, bool allStops)
+RenderResult renderScript(const std::map<std::string, std::string>& environment, float rate, bool allStops, bool changeRegistration = true)
 {
     ScopedEnvironment scoped(environment);
     RenderResult result;
@@ -546,10 +550,7 @@ RenderResult renderScript(const std::map<std::string, std::string>& environment,
         {1.150, false, 4, 36}, {1.300, false, 1, 79},
     };
 
-    // Each prepareToPlay() switches every rank to its other pipe set, and the
-    // two sets are generated with independent random detuning. Preparing
-    // twice returns to the same set, so all renders use identical pipes.
-    processor.prepareToPlay(rate, 1024);
+    // Reprepare is idempotent for the published tuning generation.
     processor.prepareToPlay(rate, 1024);
     processor.getParametersContainer().reverbWet->setValueNotifyingHost(0);
 
@@ -583,8 +584,8 @@ RenderResult renderScript(const std::map<std::string, std::string>& environment,
         }
         // Registration changes between blocks (disabled stops release,
         // re-enabled stops retrigger held keys).
-        if (block == 1500 * 44100 / int(rate) / 100) engine.getDivisionByIndex(1)->enableStop(0, false);
-        if (block == 1800 * 44100 / int(rate) / 100) engine.getDivisionByIndex(1)->enableStop(0, true);
+        if (changeRegistration && block == 1500 * 44100 / int(rate) / 100) engine.getDivisionByIndex(1)->enableStop(0, false);
+        if (changeRegistration && block == 1800 * 44100 / int(rate) / 100) engine.getDivisionByIndex(1)->enableStop(0, true);
 
         juce::AudioBuffer<float> view(audio.getArrayOfWritePointers(), audio.getNumChannels(), frames);
         allHeapOperations = 0;
@@ -600,6 +601,7 @@ RenderResult renderScript(const std::map<std::string, std::string>& environment,
         position += frames;
     }
 
+    result.rejectedNotes = engine.getRejectedNoteCount();
     result.triggers = engine.getVoicePool().getTriggerCount();
     result.mispredictions = engine.getBatchMispredictions();
     result.finalVoices = engine.getVoiceCount();
@@ -806,10 +808,10 @@ void batchRendererTests()
             compareExact(full, bounded, "bounded voice ring clears changed output");
         }
 
-        // Dense registration with a deliberately small pool: voices are
-        // dropped (as in the serial renderer) but nothing may hang or leak.
+        // An undersized pool rejects whole notes, never partial mixtures.
         const auto exhausted = renderScript({{"AEOLUS_DSP_WORKERS", "3"}, {"AEOLUS_MAX_VOICES", "64"}}, rate, true);
-        check(exhausted.peakVoices == 64, "pool exhaustion fixture did not exhaust the pool");
+        check(exhausted.peakVoices <= 64 && exhausted.rejectedNotes > 0,
+              "undersized pool did not report whole-note rejection");
         check(exhausted.finalVoices == 0 && exhausted.mispredictions == 0 && exhausted.heapOperations == 0,
               "batch renderer misbehaved at pool exhaustion");
     }
@@ -1040,8 +1042,18 @@ void operator delete[](void* p) noexcept { ::operator delete(p); }
 void operator delete(void* p, std::size_t) noexcept { ::operator delete(p); }
 void operator delete[](void* p, std::size_t) noexcept { ::operator delete(p); }
 
+#include "PerformanceSafetyTests.h"
+#include "RenderReference.h"
+#include "MemoryLifetimeTests.h"
+#include "ConvolutionOwnershipTests.h"
+#include "AuditFollowupTests.h"
+
 int main(int argc, char** argv)
 {
+#if JUCE_LINUX
+    if (argc==3 && std::string(argv[1])=="--short-write-probe")
+        return shortWriteProbe(juce::File(argv[2]));
+#endif
     juce::ScopedJuceInitialiser_GUI gui;
     int result = 0;
     try {
@@ -1059,10 +1071,18 @@ int main(int argc, char** argv)
             juce::DeletedAtShutdown::deleteAll();
             return 0;
         }
+        aeolus::EngineGlobal::getInstance()->setVoiceLimitSetting(0);
+        if (argc == 3 && std::string(argv[1]) == "--export-safety-reference") {
+            exportSafetyReference(argv[2]); juce::DeletedAtShutdown::deleteAll(); return 0;
+        }
+        performanceMeterTests(); voiceAdmissionTests(); performanceSettingsTests();
         delayBoundedResetTests();
         callbackProfilerTests();
         safetyFooterTests(); modelReloadSafetyTests(); realtimeConfigTests(); batchRendererTests(); serialEmergencyPanicTests(); emergencyPanicTests();
         profilerTests(); queueTests(); simdTests(); scalarConvolutionTest(); reverbTests(); concurrentReverbTests(); midiTests(); lifetimeTests();
+        memoryLifetimeTests();
+        convolutionOwnershipTests(); convolutionSetupTests();
+        auditKeyTests(); auditDataTests(); auditControlTests(); auditConcurrentControls(); auditRejectedLayoutTests(); auditPresetShapeTests();
         std::cout << "Audio/MIDI regressions passed\n";
     } catch (const std::exception& e) {
         countHeap = false;

@@ -96,7 +96,15 @@ public:
     };
 
     void loadSettings();
-    void saveSettings();
+    void saveSettings(bool reportErrors = true);
+
+    // Zero selects the startup pool size. Logical limits never resize the pool.
+    int getVoiceLimitSetting() const noexcept { return _voiceLimit.load(); }
+    void setVoiceLimitSetting(int limit) noexcept { _voiceLimit.store(juce::jlimit(0, 4096, limit)); }
+    int getMeterWarningPercent() const noexcept { return _meterWarning.load(); }
+    void setMeterWarningPercent(int percent) noexcept { _meterWarning.store(juce::jlimit(50, 89, percent)); }
+    int getMeterCriticalPercent() const noexcept { return _meterCritical.load(); }
+    void setMeterCriticalPercent(int percent) noexcept { _meterCritical.store(juce::jlimit(90, 100, percent)); }
 
     int getStopsCount() const noexcept { return _rankwaves.size(); }
     Rankwave* getStop(int i) { return _rankwaves[i]; }
@@ -119,6 +127,9 @@ public:
     juce::String getMTSScaleName();
     float getMTSNoteToFrequency(int midiNote, int midiChannel = -1);
     bool shouldMTSFilterNote(int midiNote, int midiChannel = -1);
+#if AEOLUS_TESTING
+    void setMTSFrequencyBaseForTest(float base) { _testMTSFrequencyBase.store(base); }
+#endif
 
     bool isMTSEnabled() const { return _mtsEnabled; }
     void setMTSEnabled(bool shouldBeEnabled);
@@ -131,7 +142,7 @@ public:
 
     void rebuildRankwaves();
 
-    void reloadStopFile(const juce::File& file);
+    bool reloadStopFile(const juce::File& file); // true when the model is ready, false if deferred/failed
     bool hasDeferredStopReloads() const noexcept { return !_deferredStopFiles.isEmpty(); }
 
     JUCE_DECLARE_SINGLETON (EngineGlobal, false)
@@ -156,13 +167,14 @@ private:
 
     juce::ListenerList<Listener> _listeners;
 
+    std::mutex _rankwavesMutex; // setup-only registry publication vs device preparation
     juce::OwnedArray<Rankwave> _rankwaves;
     juce::HashMap<juce::String, Rankwave*> _rankwavesByName;
 
     std::vector<IR> _irs;
     int _longestIRLength;   ///< Longest IR length in samples
 
-    float _sampleRate;
+    std::atomic<float> _sampleRate{SAMPLE_RATE_F};
     Scale _scale;
     float _tuningFrequency;
 
@@ -176,10 +188,15 @@ private:
     MTSClient* _mtsClient{};
     bool _mtsEnabled{};
     std::array<float, 128> _mtsTuningCache{};
+#if AEOLUS_TESTING
+    std::atomic<float> _testMTSFrequencyBase{0};
+#endif
 
     float _uiScalingFactor{ UI_SCALING_DEFAULT };
 
     bool _keyboardVisible { true };
+    std::atomic<int> _voiceLimit { 0 };
+    std::atomic<int> _meterWarning { 75 }, _meterCritical { 90 };
 
     juce::ApplicationProperties _globalProperties;
 
@@ -402,6 +419,21 @@ public:
     std::set<int> getKeySwitches() const;
 
     VoicePool& getVoicePool() noexcept { return _voicePool; }
+    int getVoiceLimit() const noexcept;
+    uint64_t getRejectedNoteCount() const noexcept { return _rejectedNotes.load(); }
+    uint64_t getRejectedRegistrationCount() const noexcept { return _rejectedRegistrations.load(); }
+    void resetAdmissionCounters() noexcept { _rejectedNotes.store(0); _rejectedRegistrations.store(0); }
+    unsigned getLayoutEpoch() const noexcept { return _layoutEpoch.load(); }
+    bool postUIControl(ControlAction action, int division = -1, int index = 0, int value = 0);
+    void applyPendingControlsForSetup() { processControlEvents(1023); } // processing must be suspended
+    void setOwningProcessor(juce::AudioProcessor* processor) { _owningProcessor = processor; }
+#if AEOLUS_TESTING
+    juce::String getPendingErrorForTest() const { return _lastError; }
+    size_t getPendingControlCount() const { return _controlEvents.count(); }
+#endif
+    void requestProgram(int index) noexcept;
+    uint64_t getRejectedControlCount() const noexcept { return _rejectedControls.load(); }
+    void registrationChanged() noexcept { _registrationRevision.fetch_add(1, std::memory_order_relaxed); }
 
     /// Scheduling/rendering configuration read from the environment.
     const RealtimeConfig& getRealtimeConfig() const noexcept { return _rtConfig; }
@@ -421,6 +453,7 @@ public:
 
     juce::var getPersistentState() const;
     void setPersistentState(const juce::var& state);
+    bool canRestoreState(const juce::var& state) const;
 
     void loadOrganState();
     void saveOrganState() const;
@@ -428,14 +461,14 @@ public:
     
     void applyDivisionLayout(int count, const juce::StringArray& names);
 
-    void applyDivisionStops(int divisionIndex, const juce::StringArray& pipeNames, bool reload = true);
+    bool applyDivisionStops(int divisionIndex, const juce::StringArray& pipeNames, bool reload = true, juce::var* pendingConfig = nullptr);
 
     struct DivisionStopEdits
         {
             int divisionIndex = 0;
             juce::StringArray pipeNames;
         };
-        void applyDivisionStopsList(const juce::Array<DivisionStopEdits>& edits);
+        bool applyDivisionStopsList(const juce::Array<DivisionStopEdits>& edits);
 
     void setWindowSize(int width, int height);
         int getWindowWidth() const noexcept { return _windowWidth; }
@@ -444,6 +477,42 @@ public:
     void postNoteEvent(bool onOff, int note, int midiChannel);
 
 private:
+    struct ControlEvent { ControlAction action; int division, index, value; unsigned epoch; };
+    RingBuffer<ControlEvent, 1024> _controlEvents; // message-thread producer, audio consumer
+    std::atomic<int> _requestedProgram{-1};
+    std::atomic<unsigned> _layoutEpoch{0};
+    std::atomic<uint64_t> _rejectedControls{0};
+    std::atomic<unsigned> _stateSequence{0};
+    int _stateWriteDepth = 0; // single audio/setup owner
+    struct StateWrite {
+        Engine& engine;
+        explicit StateWrite(Engine& e) : engine(e) { if (engine._stateWriteDepth++ == 0) engine._stateSequence.fetch_add(1); }
+        ~StateWrite() { if (--engine._stateWriteDepth == 0) engine._stateSequence.fetch_add(1); }
+    };
+    juce::AudioProcessor* _owningProcessor = nullptr; // setup-assigned, lifetime contains Engine
+    void processControlEvents(int budget = 8);
+    juce::var collectPersistentState() const;
+    friend class Division;
+    struct PendingVoice {
+        Division* division = nullptr;
+        Pipewave::State state;
+        int stopIndex = 0, quantum = -1;
+    };
+    struct DivisionSnapshot {
+        std::bitset<TOTAL_NOTES> keys, aggregated, blocked;
+        int bassNote = -1;
+        bool triggered = false;
+    };
+    void beginAdmission();
+    bool finishAdmission(int actualCount, bool restoreKeys, bool registration);
+    void forecastAdmission();
+    void prepareControlAdmission(int quantum = -1);
+    void commitControlAdmission(Division& division);
+    bool stageVoice(Division&, int stopIndex, const Pipewave::State&, int quantum);
+    void releaseVoiceOrDefer(Voice*);
+    bool isDeferredRelease(const Voice*) const;
+    void dispatchNoteOn(int note, int midiChannel);
+    void updateKeyGraph();
 
     void populateDivisions();
     void loadDivisionsFromConfig(juce::InputStream& stream);
@@ -465,7 +534,7 @@ private:
     };
 
     /// Divisions handled by note on/off (layouts allow at most 10).
-    static constexpr int MaxNoteDivisions = 64;
+    static constexpr int MaxNoteDivisions = 10; // supported organ layout maximum
 
     static constexpr int MaxBatchQuanta = 32;
     static constexpr int MaxBatchDivisions = 64;
@@ -504,6 +573,17 @@ private:
 
     RealtimeConfig _rtConfig;       ///< Must precede the voice pool.
     VoicePool _voicePool;           ///< All the voices.
+    std::vector<PendingVoice> _pendingVoices; // Sized once, never grown on audio thread.
+    std::vector<Voice*> _deferredReleases;
+    std::array<DivisionSnapshot, MaxNoteDivisions> _admissionSnapshots{};
+    std::array<std::bitset<TOTAL_NOTES>, MaxNoteDivisions> _admissionTouched{};
+    int _pendingVoiceCount = 0, _deferredReleaseCount = 0, _controlVoiceCount = 0;
+    bool _collectingAdmission = false, _admissionOverflow = false, _controlAdmissionReady = false, _committingAdmission = false;
+    std::atomic<uint64_t> _rejectedNotes{0}, _rejectedRegistrations{0};
+    std::atomic<unsigned> _registrationRevision{0};
+    unsigned _admittedRegistrationRevision = 0;
+    int _admittedVoiceLimit = 0;
+
 
     AudioParameterPool _params;     ///< Internal parameters.
 
@@ -511,11 +591,18 @@ private:
     int _stopControlGroup{};
     int _stopControlButton{};
 
+    bool _invalidConfiguration = false;
+    bool _invalidStateFile = false;
+    mutable juce::String _lastError; // message/setup thread only
     int _windowWidth { 1420 };
     int _windowHeight { 640 };
 
     /// List of all divisions
     juce::OwnedArray<Division> _divisions;
+    juce::OwnedArray<Division> _retiredDivisions;
+    void retireDivisions();
+    int _pedalIndex = -1; // selected during setup
+    std::vector<Division*> _renderDivisions; // rebuilt only during suspended setup
 
     std::unique_ptr<Sequencer> _sequencer;
 

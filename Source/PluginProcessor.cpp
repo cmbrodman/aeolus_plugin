@@ -17,6 +17,7 @@
 //
 // ----------------------------------------------------------------------------
 
+#include "aeolus/setuplock.h"
 #include <chrono>
 
 #include "aeolus/globals.h"
@@ -33,10 +34,10 @@ AeolusAudioProcessor::AeolusAudioProcessor()
     : AudioProcessor(getBusesProperties())
     , _engine{}
     , _parameters(*this)
-    , _processLoad{0.0f}
     , _callbackProfiler(aeolus::CallbackProfiler::create(
           SystemStats::getEnvironmentVariable("AEOLUS_TIMING_FILE", {})))
 {
+    _engine.setOwningProcessor(this);
     _engine.getMidiKeyboardState().addListener(this);
 
     aeolus::EngineGlobal::getInstance()->registerProcessorProxy(this);
@@ -48,6 +49,7 @@ void AeolusAudioProcessor::suspendForEdit(bool suspended)
         _stateBeforeEdit=_engine.getAudioState();
         _engine.setAudioPreparing();
         suspendProcessing(true); // JUCE waits for the current callback lock.
+        _engine.applyPendingControlsForSetup();
     } else {
         suspendProcessing(false);
         _engine.restoreAudioState(_stateBeforeEdit);
@@ -71,13 +73,14 @@ void AeolusAudioProcessor::resumeAudio()
 AeolusAudioProcessor::~AeolusAudioProcessor()
 {
     _engine.beginShutdown();
-    const juce::MessageManagerLock messageLock;
+    const aeolus::SetupMessageLock messageLock;
     _callbackProfiler.reset();
     // If we don't do this there is a leaked AccessibilityHandler instance detected.
     _engine.getMidiKeyboardState().removeListener(this);
 
     aeolus::EngineGlobal::getInstance()->unregisterProcessorProxy(this);
 
+    _engine.applyPendingControlsForSetup();
     _engine.saveOrganState();
 }
 
@@ -134,7 +137,7 @@ int AeolusAudioProcessor::getCurrentProgram()
 void AeolusAudioProcessor::setCurrentProgram(int index)
 {
     if (index >= 0 && index < _engine.getSequencer()->getStepsCount())
-        _engine.getSequencer()->setStep(index);
+        _engine.requestProgram(index);
 }
 
 const juce::String AeolusAudioProcessor::getProgramName(int index)
@@ -149,6 +152,7 @@ void AeolusAudioProcessor::changeProgramName(int /* index */, const juce::String
 //==============================================================================
 void AeolusAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
+    const juce::ScopedLock callbackLock(getCallbackLock()); // share inactive-control setup ownership
     _engine.setAudioPreparing();
     _engine.prepareToPlay((float)sampleRate, samplesPerBlock);
     _engine.setAudioActive(true);
@@ -156,6 +160,7 @@ void AeolusAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
 
 void AeolusAudioProcessor::releaseResources()
 {
+    const juce::ScopedLock callbackLock(getCallbackLock());
     _engine.setAudioActive(false);
     // When playback stops, you can use this as an opportunity to free up any
     // spare memory, etc.
@@ -288,7 +293,7 @@ void AeolusAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     if (_engine.isEmergencyMuted()) buffer.clear();
 
     int nativeXruns = -1;
-    if (_callbackProfiler != nullptr) {
+    {
 #if JucePlugin_Build_Standalone
         // Read the native counter on the device's own audio thread: the ALSA
         // implementation updates its plain integer counters on this thread.
@@ -298,12 +303,9 @@ void AeolusAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
 #endif
     }
     auto timestampStop = steady_clock::now();
-    auto duration_us = duration_cast<microseconds> (timestampStop - timestampStart).count();
-
-    float realTime_us = 1e6f * (float) buffer.getNumSamples() / _engine.getSampleRate();
-    float load = realTime_us > 0.0f ? duration_us / realTime_us : 0.0f;
-
-    _processLoad = jmin(1.0f, 0.99f * _processLoad + 0.01f * load);
+    _performance.record(duration_cast<nanoseconds>(timestampStart.time_since_epoch()).count(),
+        duration_cast<nanoseconds>(timestampStop - timestampStart).count(),
+        _engine.getSampleRate(), buffer.getNumSamples(), !isNonRealtime(), nativeXruns);
     if (_callbackProfiler != nullptr)
         _callbackProfiler->record(duration_cast<nanoseconds>(timestampStart.time_since_epoch()).count(),
             duration_cast<nanoseconds>(timestampStop - timestampStart).count(),
@@ -377,27 +379,37 @@ juce::AudioProcessorEditor* AeolusAudioProcessor::createEditor()
 //==============================================================================
 void AeolusAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
-    auto state = _engine.getPersistentState();
-
-    if (auto* obj = state.getDynamicObject())
-        obj->setProperty("parameters", _parameters.toVar());
-
+    juce::var state;
+    {
+        const aeolus::SetupMessageLock messageLock; // serialize setup shape changes
+        state = _engine.getPersistentState();
+        if (state.isVoid()) {
+            // Rare continuous-mutation fallback. Retain MIDI in the player's
+            // callback instead of setting isSuspended(), which discards events.
+            const juce::ScopedLock callbackLock(getCallbackLock());
+            state = _engine.getPersistentState();
+        }
+        if (state.isVoid()) return;
+        if (auto* obj = state.getDynamicObject())
+            obj->setProperty("parameters", _parameters.toVar());
+    }
     MemoryOutputStream stream(destData, false);
-
     JSON::writeToStream(stream, state);
 }
 
 void AeolusAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
-    MemoryInputStream stream(data, sizeInBytes, false);
+    auto state = JSON::parse(String::fromUTF8(static_cast<const char*>(data), sizeInBytes));
+    const aeolus::SetupMessageLock messageLock;
+    const juce::ScopedLock callbackLock(getCallbackLock());
+    if (!_engine.canRestoreState(state)) return;
+    _engine.applyPendingControlsForSetup();
 
-    const auto state = JSON::parse(stream);
-
-    if (const auto* obj = state.getDynamicObject()) {
+    if (const auto* obj = state.getDynamicObject())
         _parameters.fromVar(obj->getProperty("parameters"));
-    }
 
     _engine.setPersistentState(state);
+    _engine.requestProgram(-1); // restored registration takes precedence over parameter callbacks
 }
 
 //==============================================================================

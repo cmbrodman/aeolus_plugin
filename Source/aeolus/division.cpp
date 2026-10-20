@@ -144,6 +144,8 @@ void Division::initFromVar(const var& v)
             }
         }
     }
+    _admissionVoiced.resize(_stops.size());
+    _admissionStaged.resize(_stops.size());
 }
 
 var Division::getPersistentState() const
@@ -174,7 +176,7 @@ var Division::getPersistentState() const
         for (const auto& link : _linkedDivisions) {
             auto* linkObj = new DynamicObject();
             linkObj->setProperty("division", link.division->getName());
-            linkObj->setProperty("enabled", link.enabled);
+            linkObj->setProperty("enabled", bool(link.enabled));
             linkObj->setProperty("semitones", link.octaveShift);
 
             links.add(var{linkObj});
@@ -188,9 +190,9 @@ var Division::getPersistentState() const
         for (const auto& p : _presets)
         {
             auto* obj = new DynamicObject();
-            obj->setProperty("captured", p.captured);
-            obj->setProperty("tremulant", p.tremulant);
-            obj->setProperty("bass_coupler", p.bassCoupler);
+            obj->setProperty("captured", bool(p.captured));
+            obj->setProperty("tremulant", bool(p.tremulant));
+            obj->setProperty("bass_coupler", bool(p.bassCoupler));
 
             Array<var> stops;
             for (bool s : p.stops) stops.add(s);
@@ -203,7 +205,7 @@ var Division::getPersistentState() const
             presets.add(var{obj});
         }
         divisionObj->setProperty("presets", presets);
-        divisionObj->setProperty("active_preset", _activePreset);
+        divisionObj->setProperty("active_preset", int(_activePreset));
     }
 
     return var{divisionObj};
@@ -220,7 +222,7 @@ void Division::setPersistentState(const juce::var& v)
             if (channel == 0)
                 setMIDIChannelsMask((1 << 16) - 1); // Select all MIDI channels
             else
-                setMIDIChannelsMask(1 << (channel - 1));
+                setMIDIChannelsMask(midi::channelToMask(channel));
         } else {
             setMIDIChannelsMask(divisionObj->getProperty("midi_channels_mask"));
         }
@@ -275,7 +277,12 @@ void Division::setPersistentState(const juce::var& v)
                 if (const auto* obj = presets->getReference(i).getDynamicObject())
                 {
                     auto& p = _presets[(size_t)i];
-                    p.captured = (bool)obj->getProperty("captured");
+                    const auto* storedStops = obj->getProperty("stops").getArray();
+                    const auto* storedLinks = obj->getProperty("links").getArray();
+                    const bool shapeMatches = storedStops && storedLinks
+                        && storedStops->size() == (int)p.stops.size()
+                        && storedLinks->size() == (int)p.links.size();
+                    p.captured = shapeMatches && (bool)obj->getProperty("captured");
                     p.tremulant = (bool)obj->getProperty("tremulant");
                     p.bassCoupler = (bool)obj->getProperty("bass_coupler");
 
@@ -293,7 +300,8 @@ void Division::setPersistentState(const juce::var& v)
         }
 
         if (const auto& v = divisionObj->getProperty("active_preset"); !v.isVoid())
-            _activePreset = (int)v;
+            _activePreset = isPositiveAndBelow((int)v, (int)_presets.size())
+                && _presets[(size_t)(int)v].captured ? (int)v : -1;
     }
 }
 
@@ -348,7 +356,8 @@ int Division::getLinksCount() const noexcept
 
 void Division::enableLink(int i, bool ena)
 {
-    jassert(isPositiveAndBelow(i, _linkedDivisions.size()));
+    _engine.registrationChanged();
+    if (!isPositiveAndBelow(i, _linkedDivisions.size())) return;
 
     if (_linkedDivisions[i].enabled != ena) {
         _linkedDivisions[i].enabled = ena;
@@ -363,7 +372,7 @@ void Division::enableLink(int i, bool ena)
 bool Division::isLinkEnabled(int i)
 {
     jassert(isPositiveAndBelow(i, _linkedDivisions.size()));
-    return _linkedDivisions[i].enabled;
+    return isPositiveAndBelow(i, _linkedDivisions.size()) && _linkedDivisions[i].enabled;
 }
 
 Division::Link& Division::getLinkByIndex(int i)
@@ -374,6 +383,7 @@ Division::Link& Division::getLinkByIndex(int i)
 
 void Division::cancelAllLinks()
 {
+    _engine.registrationChanged();
     bool changed{ false };
 
     for (auto& link : _linkedDivisions) {
@@ -395,6 +405,7 @@ void Division::cancelAllLinks()
 void Division::clear()
 {
     _stops.clear();
+    _admissionVoiced.clear(); _admissionStaged.clear();
 }
 
 Stop& Division::addRankwave(Rankwave* ptr, bool ena, const String& name)
@@ -407,6 +418,7 @@ Stop& Division::addRankwave(Rankwave* ptr, bool ena, const String& name)
     ref.setName(name.isEmpty() ? ptr->getStopName() : name);
 
     _stops.push_back(ref);
+    _admissionVoiced.emplace_back(); _admissionStaged.emplace_back();
     return _stops.back();
 }
 
@@ -419,6 +431,7 @@ Stop& Division::addRankwaves(const std::vector<Rankwave*> rw, bool ena, const St
     ref.setName(name.isEmpty() ? rw[0]->getStopName() : name);
 
     _stops.push_back(ref);
+    _admissionVoiced.emplace_back(); _admissionStaged.emplace_back();
     return _stops.back();
 }
 
@@ -429,7 +442,10 @@ int Division::getStopsCount() const noexcept
 
 void Division::enableStop(int i, bool ena)
 {
+    _engine.registrationChanged();
     jassert(isPositiveAndBelow(i, _stops.size()));
+
+    if (!isPositiveAndBelow(i, _stops.size())) return;
 
     if (_stops[i].isEnabled() != ena) {
         _stops[i].setEnabled(ena);
@@ -445,7 +461,7 @@ void Division::enableStop(int i, bool ena)
 bool Division::isStopEnabled(int i) const
 {
     jassert(isPositiveAndBelow(i, _stops.size()));
-    return _stops[i].isEnabled();
+    return isPositiveAndBelow(i, _stops.size()) && _stops[i].isEnabled();
 }
 
 Stop& Division::getStopByIndex(int i)
@@ -456,8 +472,11 @@ Stop& Division::getStopByIndex(int i)
 
 void Division::disableAllStops()
 {
-    for (int i = 0; i < getStopsCount(); ++i)
-        enableStop(i, false);
+    const bool previous = _applyingPreset;
+    _applyingPreset = true;
+    for (int i = 0; i < getStopsCount(); ++i) enableStop(i, false);
+    _applyingPreset = previous;
+    if (!previous) syncActivePreset();
 }
 
 void Division::getAvailableRange(int& minNote, int& maxNote) const noexcept
@@ -520,139 +539,53 @@ void Division::triggerNoteInternal(int note)
     if (note < 0 || note >= TOTAL_NOTES)
         return;
 
+    if (_capacityBlockedKeys[(size_t)note]) return;
+
     for (int stopIndex = 0; stopIndex < (int)_stops.size(); ++stopIndex)
         triggerVoicesForStop(stopIndex, note);
 }
 
 void Division::releaseNoteInternal(int note)
 {
+    if (note >= 0 && note < TOTAL_NOTES) _capacityBlockedKeys.reset((size_t)note);
     auto* voice = _activeVoices.first();
 
     while (voice != nullptr)
     {
-        if (voice->isForNote(note))
-            voice->release();
+        if (voice->isForNote(note)) {
+            if (_engine._collectingAdmission && isPositiveAndBelow(voice->stopIndex(), _admissionVoiced.size()))
+                _admissionVoiced[(size_t)voice->stopIndex()].reset((size_t)note);
+            _engine.releaseVoiceOrDefer(voice);
+        }
 
         voice = voice->next();
     }
 }
 
-void Division::noteOn(int note, int midiChannel, bool followLinks)
+void Division::noteOn(int note, int midiChannel, bool /*followLinks*/)
 {
-    if (hasBeenTriggered())
-        return;
-
-    if (midiChannel != 0 && !isForMIDIChannel(midiChannel))
-        return;
-
-    _triggerFlag = true;
-
-    triggerNoteInternal(note);
-
-    if (midiChannel != 0)
-        _keysState.set(note);
-
-    if (followLinks)
-    {
-        for (auto& link : _linkedDivisions)
-        {
-            if (!link.enabled)
-                continue;
-
-            const int coupledNote = note + link.octaveShift;
-            if (coupledNote < 0 || coupledNote >= TOTAL_NOTES)
-                continue;
-
-            if (link.division == this)
-            {
-                triggerNoteInternal(coupledNote);
-                continue;
-            }
-
-            if (link.octaveShift == 0)
-                link.division->noteOn(coupledNote, 0, link.passThrough);
-            else
-                link.division->triggerNoteInternal(coupledNote);
-        }
-    }
-
-    if (_bassCouplerEnabled && midiChannel != 0)
-    {
-        if (_bassCouplerNote < 0 || note < _bassCouplerNote)
-        {
-            if (auto* pedal = _engine.getPedalDivision())
-            {
-                if (_bassCouplerNote >= 0)
-                {
-                    pedal->noteOff(_bassCouplerNote, 0);
-                    pedal->forceKeyState(_bassCouplerNote, false);
-                }
-
-                pedal->noteOn(note, 0);
-                pedal->forceKeyState(note, true);
-                _bassCouplerNote = note;
-            }
-        }
-    }
+    if (!isPositiveAndBelow(note, TOTAL_NOTES) || (midiChannel != 0 && !isForMIDIChannel(midiChannel))) return;
+    auto& held = _held[(size_t)(jlimit(1,16,midiChannel)-1)][(size_t)note];
+    held = 1; // repeated note-on on one channel replaces its held state
+    if (!_keysState[(size_t)note]) _capacityBlockedKeys.reset((size_t)note);
+    _keysState.set((size_t)note);
 }
 
-void Division::noteOff(int note, int midiChannel, bool followLinks)
+void Division::noteOff(int note, int midiChannel, bool /*followLinks*/)
 {
-    if (hasBeenTriggered())
-        return;
-
-    if (!isForMIDIChannel(midiChannel))
-        return;
-
-    _triggerFlag = true;
-
-    releaseNoteInternal(note);
-
-    if (midiChannel != 0)
-        _keysState.reset(note);
-
-    if (followLinks)
-    {
-        for (auto& link : _linkedDivisions)
-        {
-            if (!link.enabled)
-                continue;
-
-            const int coupledNote = note + link.octaveShift;
-            if (coupledNote < 0 || coupledNote >= TOTAL_NOTES)
-                continue;
-
-            if (link.division == this)
-            {
-                releaseNoteInternal(coupledNote);
-                continue;
-            }
-
-            if (link.octaveShift == 0)
-                link.division->noteOff(coupledNote, 0, link.passThrough);
-            else
-                link.division->releaseNoteInternal(coupledNote);
-        }
-    }
-
-    if (_bassCouplerEnabled && midiChannel != 0)
-    {
-        if (note == _bassCouplerNote)
-        {
-            if (auto* pedal = _engine.getPedalDivision())
-            {
-                pedal->noteOff(_bassCouplerNote, 0);
-                pedal->forceKeyState(_bassCouplerNote, false);
-            }
-
-            _bassCouplerNote = -1;
-        }
-    }
+    if (!isPositiveAndBelow(note, TOTAL_NOTES)) return;
+    auto& held = _held[(size_t)(jlimit(1,16,midiChannel)-1)][(size_t)note];
+    held = 0;
+    bool any = false;
+    for (auto& channel : _held) any |= channel[(size_t)note] != 0;
+    _keysState.set((size_t)note, any);
 }
 
 void Division::emergencySilence()
 {
+    for (auto& channel : _held) channel.fill(0);
     _keysState.reset();
+    _capacityBlockedKeys.reset();
     _aggregatedKeysState.reset();
     _bassCouplerNote = -1;
     while (auto* voice = _activeVoices.first()) {
@@ -663,7 +596,9 @@ void Division::emergencySilence()
 
 void Division::allNotesOff()
 {
+    for (auto& channel : _held) channel.fill(0);
     _keysState.reset();
+    _capacityBlockedKeys.reset();
 
     auto* voice = _activeVoices.first();
 
@@ -683,7 +618,7 @@ void Division::handleControlMessage(const juce::MidiMessage& msg)
     const int swellCh{ _engine.getMIDISwellChannelsMask() };
     const float value{ float(msg.getControllerValue()) / 127.0f };
 
-    if (msg.getChannel() == 0 || (swellCh & (msg.getChannel() - 1)) != 0) {
+    if (midi::matchChannelToMask(swellCh, msg.getChannel())) {
         if (_hasSwell && cc == aeolus::CC_VOLUME) {
             *_paramGain = value;
         }
@@ -700,12 +635,20 @@ void Division::handleControlMessage(const juce::MidiMessage& msg)
         allNotesOff();
 }
 
+void Division::retire()
+{
+    _retired = true;
+    _retiredGain = _paramGain ? _paramGain->get() : 0.5f;
+    allNotesOff();
+    clearLinkedDivisions();
+}
+
 bool Division::process(AudioBuffer<float>& targetBuffer, AudioBuffer<float>& voiceBuffer)
 {
     jassert(targetBuffer.getNumSamples() == SUB_FRAME_LENGTH);
     jassert(voiceBuffer.getNumSamples() == SUB_FRAME_LENGTH);
 
-    controlStep();
+    if (!_retired) controlStep();
 
     auto* voice = _activeVoices.first();
 
@@ -741,12 +684,16 @@ bool Division::process(AudioBuffer<float>& targetBuffer, AudioBuffer<float>& voi
 
 void Division::controlStep(int batchQuantum, int* batchLimit)
 {
+    if (_retired) return;
     _batchQuantum = batchQuantum;
     _batchLimit = batchLimit;
 
-    updateAggregatedKeysState();
-    releaseVoicesOfDisabledStops();
-    triggerVoicesOfEnabledStops();
+    _capacityBlockedKeys &= _aggregatedKeysState;
+    if (!_engine._collectingAdmission) releaseVoicesOfDisabledStops();
+    if (!_engine._collectingAdmission && _engine._controlAdmissionReady)
+        _engine.commitControlAdmission(*this);
+    else
+        triggerVoicesOfEnabledStops();
 
     _batchQuantum = -1;
     _batchLimit = nullptr;
@@ -764,7 +711,7 @@ void Division::modulate(juce::AudioBuffer<float>& targetBuffer, const juce::Audi
 
     // Update gain smoothly
     auto& paramGain = _params[Division::GAIN];
-    paramGain.setValue(_paramGain->get());
+    paramGain.setValue(_retired ? _retiredGain : _paramGain->get());
 
 #if AEOLUS_MULTIBUS_OUTPUT
 
@@ -870,73 +817,23 @@ void Division::triggerVoicesOfEnabledStops()
         return;
     }
 
-    std::bitset<TOTAL_NOTES> missingNotes{ _aggregatedKeysState };
-
     for (int stopIndex = 0; stopIndex < _stops.size(); ++stopIndex) {
         auto& stop = _stops[stopIndex];
 
         if (!stop.isEnabled())
             continue;
 
-        bool hasVoices = false;
-
-        auto* voice = _activeVoices.first();
-
-        while (voice != nullptr) {
-            const int voiceNote{ voice->getNote() };
-
-            if (voice->stopIndex() == stopIndex && voiceNote >= 0 && _aggregatedKeysState[voiceNote]) {
-                hasVoices = true;
-                missingNotes[voiceNote] = 0;
-                break;
-            }
-
-            voice = voice->next();
+        // Each stop needs its own set: a voiced stop must not hide held
+        // notes from a newly enabled stop in the same registration.
+        std::bitset<TOTAL_NOTES> missingNotes{ _aggregatedKeysState };
+        if (_engine._collectingAdmission) missingNotes &= ~_admissionVoiced[(size_t)stopIndex];
+        else for (auto* voice = _activeVoices.first(); voice; voice = voice->next()) {
+            const int note = voice->getNote();
+            if (voice->isActive() && voice->stopIndex() == stopIndex && isPositiveAndBelow(note, TOTAL_NOTES))
+                missingNotes.reset((size_t)note);
         }
-
-        // Trigger voices for enabled stops
-        if (!hasVoices) {
-            for (int note = 0; note < missingNotes.size(); ++note) {
-                if (missingNotes[note])
-                    triggerVoicesForStop(stopIndex, note);
-            }
-        }
-    }
-}
-
-void Division::updateAggregatedKeysState()
-{
-    _aggregatedKeysState = _keysState;
-
-    for (const auto* src : _linkedFromDivisions)
-    {
-        for (const auto& link : src->_linkedDivisions)
-        {
-            if (link.division != this || !link.enabled)
-                continue;
-
-            int shift = link.octaveShift;
-            if (shift == 1) shift = 12;
-            else if (shift == -1) shift = -12;
-            else if (shift != 12 && shift != -12) shift = 0;
-
-            if (shift == 0)
-            {
-                _aggregatedKeysState |= src->_aggregatedKeysState;
-            }
-            else
-            {
-                for (int n = 0; n < TOTAL_NOTES; ++n)
-                {
-                    if (!src->_aggregatedKeysState[n])
-                        continue;
-
-                    const int coupled = n + shift;
-                    if (coupled >= 0 && coupled < TOTAL_NOTES)
-                        _aggregatedKeysState.set((size_t)coupled);
-                }
-            }
-        }
+        for (int note = 0; note < TOTAL_NOTES; ++note)
+            if (missingNotes[(size_t)note] && !_capacityBlockedKeys[(size_t)note]) triggerVoicesForStop(stopIndex, note);
     }
 }
 
@@ -965,14 +862,7 @@ bool Division::triggerVoicesForStop(int stopIndex, int note)
                     state.gain = stop.getGain();
                     state.chiffGain = stop.getChiffGain();
 
-                    if (auto* voice = _engine.getVoicePool().trigger(state)) {
-                        if (_batchQuantum > 0)
-                            voice->setBatchStart(_batchQuantum);
-
-                        voice->setStopIndex(stopIndex);
-                        _activeVoices.append(voice);
-                        voiceTriggered = true;
-                    }
+                    voiceTriggered |= _engine.stageVoice(*this, stopIndex, state, _batchQuantum);
                 }
             }
         }
@@ -983,6 +873,9 @@ bool Division::triggerVoicesForStop(int stopIndex, int note)
 
 bool Division::isAlreadyVoiced(int stopIndex, int note)
 {
+    if (_engine._collectingAdmission)
+        return _admissionVoiced[(size_t)stopIndex][(size_t)note]
+            || _admissionStaged[(size_t)stopIndex][(size_t)note];
     auto* voice = _activeVoices.first();
 
     while (voice != nullptr) {
@@ -998,18 +891,13 @@ bool Division::isAlreadyVoiced(int stopIndex, int note)
 
 void Division::setBassCouplerEnabled(bool ena)
 {
+    _engine.registrationChanged();
     if (_bassCouplerEnabled == ena)
         return;
 
     _bassCouplerEnabled = ena;
 
-    if (!_bassCouplerEnabled && _bassCouplerNote >= 0)
-    {
-        if (auto* pedal = _engine.getPedalDivision())
-            pedal->noteOff(_bassCouplerNote, 0);
-
-        _bassCouplerNote = -1;
-    }
+    _bassCouplerNote = -1;
 
     if (!_applyingPreset)
         syncActivePreset();
@@ -1027,6 +915,11 @@ void Division::forceKeyState(int note, bool on)
 
 void Division::setMIDIChannelsMask(int mask)
 {
+    mask &= 0xffff;
+    for (int ch = 0; ch < 16; ++ch) if (!(mask & (1 << ch))) _held[(size_t)ch].fill(0);
+    _keysState.reset();
+    for (int ch = 0; ch < 16; ++ch) for (int note = 0; note < TOTAL_NOTES; ++note)
+        if (_held[(size_t)ch][(size_t)note]) _keysState.set((size_t)note);
     _midiChannelsMask = mask;
     _engine.requestSaveOrganState();
 }
@@ -1050,12 +943,10 @@ void Division::ensurePresets()
 
 void Division::capturePreset(int index)
 {
-    ensurePresets();
-    jassert(isPositiveAndBelow(index, (int)_presets.size()));
+    if (!isPositiveAndBelow(index, (int)_presets.size())) return;
 
     auto& p = _presets[(size_t)index];
-    p.stops.resize((size_t)getStopsCount());
-    p.links.resize((size_t)getLinksCount());
+    if (p.stops.size() != (size_t)getStopsCount() || p.links.size() != (size_t)getLinksCount()) return;
 
     for (int i = 0; i < getStopsCount(); ++i)
         p.stops[(size_t)i] = getStopByIndex(i).isEnabled();
@@ -1073,8 +964,7 @@ void Division::capturePreset(int index)
 
 void Division::recallPreset(int index)
 {
-    ensurePresets();
-    jassert(isPositiveAndBelow(index, (int)_presets.size()));
+    if (!isPositiveAndBelow(index, (int)_presets.size())) return;
 
     const auto& p = _presets[(size_t)index];
     if (!p.captured)
@@ -1155,5 +1045,14 @@ void Division::syncActivePreset()
                 _activePreset = i;
         }
     }
+}
+AEOLUS_NAMESPACE_END
+
+AEOLUS_NAMESPACE_BEGIN
+bool Division::postControl(ControlAction action, int index, int value)
+{
+    for (int d = 0; d < _engine.getDivisionCount(); ++d)
+        if (_engine.getDivisionByIndex(d) == this) return _engine.postUIControl(action, d, index, value);
+    return false;
 }
 AEOLUS_NAMESPACE_END

@@ -26,6 +26,15 @@ public:
     };
 
     juce::Array<DivisionStopEdits> getAllEdits();
+    bool commitVariants();
+    juce::Array<juce::File> getCreatedVariantFiles() const { return _createdVariants; }
+#if AEOLUS_TESTING
+    void testStageVariant(const juce::String& name, int footage) {
+        populateStopCombo(*_stopBoxes[0], name);
+        _footageBoxes[0]->setSelectedId(footage, juce::dontSendNotification);
+        applyFootageChange(0);
+    }
+#endif
 
     void resized() override;
 
@@ -55,6 +64,9 @@ private:
     aeolus::Engine& _engine;
     juce::StringArray _stopNames;
     bool _updating { false };
+    std::map<juce::String, juce::var> _variants;
+    std::map<juce::String, juce::String> _variantBases;
+    juce::Array<juce::File> _createdVariants;
 
     juce::Label _titleLabel;
     juce::Label _divisionLabel;

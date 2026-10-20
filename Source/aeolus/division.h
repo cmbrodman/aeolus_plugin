@@ -56,7 +56,7 @@ public:
      struct Link
     {
         Division* division;
-        bool enabled = false;
+        PublishedValue<bool> enabled = false;
         int octaveShift = 0;     // -12, 0, +12
         bool passThrough = false;
     };
@@ -87,6 +87,8 @@ public:
 
     juce::var getPersistentState() const;
     void setPersistentState(const juce::var& v);
+
+    bool postControl(ControlAction action, int index = 0, int value = 0);
 
     Engine& getEngine() noexcept { return _engine; }
 
@@ -177,6 +179,8 @@ public:
     void releaseVoicesOfDisabledStops();
     void triggerVoicesOfEnabledStops();
 
+    void retire();
+
     List<Voice>& getActiveVoices() noexcept { return _activeVoices; }
 
     /**
@@ -208,6 +212,10 @@ public:
     void syncActivePreset();
 
 private:
+    bool _retired = false;
+    float _retiredGain = 0.5f;
+    friend class Engine;
+    friend class Sequencer;
 
     /**
      * This will construct the keys aggregated state from the division's keys state
@@ -255,9 +263,14 @@ private:
     dsp::DelayLine _tremulantDelayR;
 
     std::vector<Stop> _stops;   ///< All the stops this division has.
+    // Sized with the stop layout, outside processing. Rebuilt once per
+    // admission transaction to avoid rescanning every voice for each rank.
+    std::vector<std::bitset<TOTAL_NOTES>> _admissionVoiced, _admissionStaged;
 
     List<Voice> _activeVoices;  ///< Active voices on this division.
 
+    std::bitset<TOTAL_NOTES> _capacityBlockedKeys; // Rejected additions wait for key release.
+    std::array<std::array<uint16_t, TOTAL_NOTES>, 16> _held{};
     std::bitset<TOTAL_NOTES> _keysState; ///< MIDI keys state 1 = on, 0 = off.
     std::bitset<TOTAL_NOTES> _aggregatedKeysState;   ///< MIDI keys state aggregated from the coupled divisions.
 
@@ -276,20 +289,20 @@ private:
     Level _volumeLevel;
 
     // Bass coupler support
-    bool _bassCouplerEnabled = false;
+    PublishedValue<bool> _bassCouplerEnabled = false;
     int  _bassCouplerNote = -1;   // -1 means no note currently sent to pedal
 
         struct Preset
     {
-        std::vector<bool> stops;
-        std::vector<bool> links;
-        bool tremulant = false;
-        bool bassCoupler = false;
-        bool captured = false;
+        std::vector<PublishedValue<bool>> stops;
+        std::vector<PublishedValue<bool>> links;
+        PublishedValue<bool> tremulant = false;
+        PublishedValue<bool> bassCoupler = false;
+        PublishedValue<bool> captured = false;
     };
 
     std::vector<Preset> _presets;
-    int _activePreset = -1;
+    PublishedValue<int> _activePreset = -1;
     bool _applyingPreset = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Division)

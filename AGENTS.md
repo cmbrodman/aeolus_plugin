@@ -151,6 +151,47 @@ Do not distribute a test-enabled executable as the normal application.
 Report checks actually run and their limits. Do not present historical CI results,
 static inspection or failed test launches as current functional validation.
 
+## Automatic Claude review workflow
+
+Codex owns implementation, test execution and fixes. Claude independently reviews
+supplied snapshots and reports findings without editing source or running fixes.
+Codex verifies those findings and retains responsibility for the delivered result.
+
+Codex must automatically run the [Claude review workflow](docs/CLAUDE_REVIEW.md)
+after substantial code changes and relevant local checks, before final delivery,
+unless the user explicitly opts out. Changes to real-time audio processing, voice
+allocation/lifetimes, threading, synchronization or performance require review even
+when the diff is small. Other substantial logic, state, build or tooling changes
+also require review. Reviews are optional for trivial prose, formatting, comments
+or similarly low-impact edits. This is a Codex task-completion instruction, not a
+watcher, Git hook or runtime change; do not recursively launch reviews from a
+Claude review-only session.
+
+Use `python3 tools/claude_review.py review --objective '...' [--context FILE] FILE...`
+to prepare, execute and retrieve a review directly. Select explicit task-owned
+files, a Git baseline, surrounding context and objectives; do not include unrelated
+dirty files. The tool includes all edits and full context within selected files;
+when a file mixes task and pre-existing edits, state that limitation and bound the
+objectives without altering user work. The existing `prepare`, `run` and `show`
+commands remain available for separate steps and retries. Direct execution is
+authorized within the current task when the normal CLI/network access works; no
+extra confirmation is needed.
+If access fails, report the actual failure and offer the generated host command.
+Do not bypass the restricted-network guard or change authentication, networking,
+sandbox or runtime settings. Orca terminal startup remains an optional fallback
+only when its runtime and host execution policy permit it.
+
+Consume results with `python3 tools/claude_review.py show REVIEW_ID`. Require a
+completed, valid, current-snapshot result; timeout, failure, pending or stale output
+must not be reported as a successful review. Read the findings, verify concrete
+defects, address them within the authorized task and run relevant checks. Keep
+generated artifacts under the ignored `build/claude-reviews/` directory. Claude
+receives the supplied snapshot with built-in/MCP tools and ordinary customizations
+disabled; it reports findings and Codex handles authorized edits. Re-review a fresh
+snapshot after substantive fixes. Report failed/incomplete reviews as limitations;
+never substitute old results or claim success. Integration setup must not change
+application source.
+
 ## Workspace, permissions and collaboration
 
 Explicit user instructions establish the task and its authorization. Approval

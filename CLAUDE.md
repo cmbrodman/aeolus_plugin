@@ -24,7 +24,10 @@ session does not emit worker lifecycle messages.
   existing user-assigned branch. Keep the user's configured Git author identity
   and normal Claude Code attribution unless the user requests otherwise. Do not
   hardcode a particular model identity or change model/effort without direction.
-- Read-only review requests stay read-only unless fixes are requested. Give
+- In the [Codex review workflow](docs/CLAUDE_REVIEW.md), independently report
+  findings only. Codex owns implementation, test execution and fixes; do not edit
+  source, execute suggested fixes or launch another review from a review session.
+  Other read-only review requests stay read-only unless fixes are requested. Give
   findings with file/line references, a concrete failure scenario and severity,
   distinguishing confirmed defects from suspected risks.
 - Keep the validated multicore/HEALTH implementation distinct from historical

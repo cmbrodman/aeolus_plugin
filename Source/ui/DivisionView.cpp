@@ -116,7 +116,7 @@ DivisionView::DivisionView(aeolus::Division* division)
 
         _bassCouplerButton.onClick = [this]()
         {
-            _division->setBassCouplerEnabled(_bassCouplerButton.getToggleState());
+            _division->postControl(aeolus::ControlAction::Bass, 0, _bassCouplerButton.getToggleState());
         };
 
         addAndMakeVisible(_bassCouplerButton);
@@ -163,14 +163,8 @@ void DivisionView::cancelAllStops()
 {
     jassert(_division != nullptr);
 
-    for (int i = 0; i < _division->getStopsCount(); ++i)
-    {
-        _division->enableStop(i, false);
-        _stopButtons.getUnchecked(i)->update();
-    }
-
-    if (_division->hasBassCoupler())
-            _division->setBassCouplerEnabled(false);
+    _division->postControl(aeolus::ControlAction::CancelStops);
+    for (auto* button : _stopButtons) button->update();
 
     updatePresetButtons();
 }
@@ -179,7 +173,7 @@ void DivisionView::cancelAllLinks()
 {
     jassert(_division != nullptr);
 
-    _division->cancelAllLinks();
+    _division->postControl(aeolus::ControlAction::CancelLinks);
 
     for (auto& button : _linkButtons)
         button->setToggleState(false, dontSendNotification);
@@ -189,7 +183,7 @@ void DivisionView::cancelTremulant()
 {
     jassert(_division != nullptr);
 
-    _division->setTremulantEnabled(false);
+    _division->postControl(aeolus::ControlAction::Tremulant, 0, false);
 }
 
 constexpr int controlPanelWidth = 130;
@@ -345,7 +339,7 @@ void DivisionView::populateLinkButtons()
         ptr->setToggleState(link.enabled, dontSendNotification);
 
         button->onClick = [division = _division, i, ptr] {
-            division->enableLink(i, ptr->getToggleState());
+            division->postControl(aeolus::ControlAction::Link, i, ptr->getToggleState());
         };
 
         _linkButtons.add(button.release());
@@ -371,13 +365,13 @@ void DivisionView::populatePresetButtons()
         {
             if (_programMode)
             {
-                _division->capturePreset(i);
+                _division->postControl(aeolus::ControlAction::CapturePreset, i);
                 if (onPresetStored)
                     onPresetStored();
             }
             else
             {
-                _division->recallPreset(i);
+                _division->postControl(aeolus::ControlAction::RecallPreset, i);
             }
             updatePresetButtons();
         };

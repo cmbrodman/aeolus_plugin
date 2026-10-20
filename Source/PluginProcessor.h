@@ -23,6 +23,7 @@
 
 #include "aeolus/engine.h"
 #include "aeolus/callbackprofiler.h"
+#include "aeolus/performancemeter.h"
 
 #include "Parameters.h"
 
@@ -88,7 +89,9 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
-    float getProcessLoad() const noexcept { return _processLoad; }
+    float getProcessLoad() const noexcept { return _performance.snapshot().average; }
+    aeolus::PerformanceMeter::Snapshot getPerformance() const noexcept { return _performance.snapshot(); }
+    void resetPerformanceCounters() noexcept { _performance.requestReset(); _engine.resetAdmissionCounters(); }
     int getActiveVoiceCount() const noexcept { return (int) _engine.getVoiceCount(); }
 
     // juce::MidiKeyboardState::Listener
@@ -106,7 +109,7 @@ private:
 
     Parameters _parameters;
 
-    std::atomic<float> _processLoad;
+    aeolus::PerformanceMeter _performance;
     unsigned _stateBeforeEdit = 0;
     std::unique_ptr<aeolus::CallbackProfiler> _callbackProfiler;
 

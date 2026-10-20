@@ -39,7 +39,7 @@ DivisionControlPanel::DivisionControlPanel(aeolus::Division* division)
     _tremulantButton.setToggleState(_division->isTremulantEnabled(), juce::dontSendNotification);
 
     _tremulantButton.onClick = [this]() {
-        _division->setTremulantEnabled(_tremulantButton.getToggleState());
+        _division->postControl(aeolus::ControlAction::Tremulant, 0, _tremulantButton.getToggleState());
     };
 
     addAndMakeVisible(_tremulantButton);

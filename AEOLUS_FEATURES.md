@@ -5,6 +5,37 @@
 **Repository:** https://github.com/cmbrodman/aeolus_plugin  
 **Scope:** Portable USB-MIDI organ, Linux appliance, performance optimization, and configurable multichannel audio.
 
+## Current implementation baseline — reviewed 2026-10-19
+
+The requirements and research below retain their original dates. Current behavior
+is described in [README](README.md); recorded October 18 integration checks and
+hardware limits are in [ARM optimization notes](docs/ARM_OPTIMIZATION.md#integration-verification).
+The October 18 hardware results have not been rerun for the October 19 safety increment.
+
+- **Implemented:** standalone JUCE organ/editors and persistent organ state;
+  MIDI-offset and queue-overflow handling; prepared convolution transitions;
+  ARM64 NEON arithmetic/spatial kernels and bounded readable-ring clearing;
+  opt-in Linux grouped/multicore rendering; global Panic/explicit Resume and
+  independent Linux HEALTH supervision with processor-lifetime handling.
+- **October 19 safety increment:** configurable logical pipe-voice capacity,
+  whole-note admission with mixture/coupler headroom, explicit rejection counts,
+  uncapped callback timing/deadline and voice-capacity bars, and the related
+  Performance & Safety settings/diagnostics menus are implemented. Held-key
+  registration additions are admitted together or blocked until release/replay.
+  Local x86-64 validation and remaining hardware/UI limits are recorded in
+  [performance safety notes](docs/PERFORMANCE_SAFETY.md).
+- **Existing boundaries:** voice-pool allocation remains startup-only; a logical
+  cap is not an established clean-audio limit. Meter thresholds remain provisional.
+  Multicore/core controls use explicit environment settings. The fixed
+  eight-mono-bus build remains separate from runtime stereo-pair routing.
+- **Other planned increments:** saved portable hardware profiles and installer
+  controls; persistent, verified IRQ/startup integration; selectable algorithmic
+  reverb; runtime stereo-pair/frequency routing; MIDI reconnection and touch work.
+  Their priority is selected with the user; listing them does not start them all.
+- **Deferred experiment:** pipe-onset staggering still requires the measured
+  evidence and explicit approval in section 14.3. No UI/backend replacement or
+  automatic application restart is selected by this baseline update.
+
 ## 1. Project goals
 
 - Build a reliable, portable, standalone Aeolus pipe organ with a touchscreen-friendly interface.
@@ -386,6 +417,14 @@ immediate implementation or changing existing sound-preservation requirements.
   a notes-off startup; it is not enabled by this roadmap entry.
 
 ### 16.3 Selectable voice capacity and performance meters
+
+**Implementation status — October 19:** The logical cap, whole-note admission,
+held-registration rejection, two bars, persistent thresholds and diagnostics
+submenus are implemented and locally regression-tested. See
+[behavior and checks](docs/PERFORMANCE_SAFETY.md). Target-board/touchscreen
+validation, measured hardware-specific thresholds, live pool resizing, protected
+installer access and portable hardware profiles remain outstanding. The original
+requirements below continue to guide those checks.
 
 - Provide a configurable maximum active **pipe-voice** count with explicit
   rejection of new notes at capacity. Account for stops, mixtures and couplers;

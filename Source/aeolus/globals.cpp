@@ -59,6 +59,9 @@ juce::File getTestDataDirectory()
 
 juce::File getOrganDataDirectory()
 {
+#if AEOLUS_TESTING
+    if (juce::SystemStats::getEnvironmentVariable("AEOLUS_TEST_DATA_DIRECTORY", {}).isNotEmpty()) return getTestDataDirectory();
+#endif
     if (activeOrganDataDirectory().getFullPathName().isNotEmpty())
         return activeOrganDataDirectory();
 
@@ -86,34 +89,34 @@ juce::File getOrganStateFile()
     return getOrganDataDirectory().getChildFile("organ_state.json");
 }
 
-void ensureOrganDataFiles()
+juce::Result ensureOrganDataFiles()
 {
-    auto dir = getOrganDataDirectory();
-
-    if (!dir.exists())
-        dir.createDirectory();
-
+    const auto dir = getOrganDataDirectory();
+    auto result = dir.createDirectory();
+    if (result.failed()) return result;
     const auto configFile = dir.getChildFile("organ_config.json");
-    const auto stateFile  = dir.getChildFile("organ_state.json");
-
-    if (!configFile.existsAsFile())
-    {
-        configFile.replaceWithData(BinaryData::default_organ_json,
-                                   BinaryData::default_organ_jsonSize);
+    const auto stateFile = dir.getChildFile("organ_state.json");
+    if (!configFile.existsAsFile()) {
+        result = saveTextFile(configFile, juce::String::fromUTF8(BinaryData::default_organ_json, BinaryData::default_organ_jsonSize));
+        if (result.failed()) return result;
     }
-
-    if (!stateFile.existsAsFile())
-    {
-        stateFile.replaceWithText("{\n}\n");
-    }
+    if (!stateFile.existsAsFile()) return saveTextFile(stateFile, "{\n}\n");
+    return juce::Result::ok();
 }
 
 juce::Array<juce::File> getStopSearchDirectories()
 {
     juce::Array<juce::File> dirs;
+#if AEOLUS_TESTING
+    if (juce::SystemStats::getEnvironmentVariable("AEOLUS_TEST_DATA_DIRECTORY", {}).isNotEmpty()) {
+        dirs.add(getTestDataDirectory()); dirs.add(getTestDataDirectory().getChildFile("Stops"));
+        return dirs;
+    }
+#endif
     dirs.add(getExeDirectory());
-    dirs.add(getDocumentsAeolusDirectory());
-    dirs.add(getDocumentsAeolusDirectory().getChildFile("Stops"));
+    dirs.addIfNotAlreadyThere(getOrganDataDirectory().getChildFile("Stops"));
+    dirs.addIfNotAlreadyThere(getDocumentsAeolusDirectory());
+    dirs.addIfNotAlreadyThere(getDocumentsAeolusDirectory().getChildFile("Stops"));
     return dirs;
 }
 
@@ -133,9 +136,9 @@ static bool stopFileExists(const juce::String& stopName)
     return false;
 }
 
-void ensureStopFiles()
+juce::Result ensureStopFiles()
 {
-    auto stopsDir = getDocumentsAeolusDirectory().getChildFile("Stops");
+    auto stopsDir = getOrganDataDirectory().getChildFile("Stops");
 
     for (int i = 0; i < BinaryData::namedResourceListSize; ++i)
     {
@@ -176,15 +179,48 @@ void ensureStopFiles()
 
         synth->setStopName(stopName);
 
-        if (!stopsDir.exists())
-            stopsDir.createDirectory();
+        auto result = stopsDir.createDirectory();
+        if (result.failed()) return result;
 
         const auto outFile = stopsDir.getChildFile(stopName + ".json");
-        outFile.replaceWithText(JSON::toString(synth->toVar(), true));
+        result = saveTextFile(outFile, JSON::toString(synth->toVar(), true));
+        if (result.failed()) return result;
     }
+    return juce::Result::ok();
 }
 
 //==============================================================================
+
+void reportUserError(const juce::String& title, const juce::String& message)
+{
+#if AEOLUS_TESTING
+    juce::Logger::writeToLog(title + ": " + message);
+#else
+    juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, title, message);
+#endif
+}
+
+juce::Result saveTextFile(const juce::File& file, const juce::String& text)
+{
+    if (file.isDirectory()) return juce::Result::fail("Cannot replace a directory: " + file.getFullPathName());
+    const auto temporaryPath = file.getSiblingFile("." + file.getFileName() + "." + juce::Uuid().toString() + ".tmp");
+    juce::TemporaryFile temporary(file, temporaryPath); // never a discoverable stop model
+
+    {
+        juce::FileOutputStream stream(temporary.getFile());
+        if (!stream.openedOk()) return stream.getStatus();
+        if (!stream.writeText(text, false, false, "\n")) return juce::Result::fail("Unable to write " + file.getFullPathName());
+        const auto expectedBytes = stream.getPosition();
+        stream.flush();
+        if (stream.getStatus().failed()) return stream.getStatus();
+        // JUCE flush() drops flushBuffer()'s false result on a positive short
+        // write. Position includes buffered bytes; verify they reached the file.
+        if (temporary.getFile().getSize() != expectedBytes)
+            return juce::Result::fail("Incomplete write to " + file.getFullPathName());
+    }
+    if (!temporary.overwriteTargetFileWithTemporary()) return juce::Result::fail("Unable to replace " + file.getFullPathName());
+    return juce::Result::ok();
+}
 
 namespace math {
 
@@ -205,10 +241,10 @@ namespace midi {
 int channelToMask(int channel)
 {
     // Zero means any MIDI channel.
-    if (channel <= 0)
+    if (channel == 0)
         return (1 << 16) - 1;
 
-    return 1 << (channel - 1);
+    return channel >= 1 && channel <= 16 ? 1 << (channel - 1) : 0;
 }
 
 bool matchChannelToMask(int mask, int channel)

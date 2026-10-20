@@ -17,6 +17,7 @@
 //
 // ----------------------------------------------------------------------------
 
+#include "aeolus/setuplock.h"
 #include "aeolus/engine.h"
 #include "aeolus/paniccontrol.h"
 #include <thread>
@@ -101,7 +102,7 @@ EngineGlobal::~EngineGlobal()
     if (_mtsClient != nullptr)
         MTS_DeregisterClient(_mtsClient);
 
-    saveSettings();
+    saveSettings(false); // no async dialogs during DeletedAtShutdown teardown
     clearSingletonInstance();
 }
 
@@ -149,10 +150,13 @@ void EngineGlobal::loadSettings()
             _uiScalingFactor = uiScalingFactor;
 
         _keyboardVisible = propertiesFile->getBoolValue(settings::keyboardVisible, true);
+        setVoiceLimitSetting(propertiesFile->getIntValue("voiceLimit", 0));
+        setMeterWarningPercent(propertiesFile->getIntValue("meterWarningPercent", 75));
+        setMeterCriticalPercent(propertiesFile->getIntValue("meterCriticalPercent", 90));
     }
 }
 
-void EngineGlobal::saveSettings()
+void EngineGlobal::saveSettings(bool reportErrors)
 {
     if (auto* propertiesFile = _globalProperties.getUserSettings()) {
         propertiesFile->setValue(settings::tuningFrequency, _tuningFrequency);
@@ -160,9 +164,16 @@ void EngineGlobal::saveSettings()
         propertiesFile->setValue(settings::mtsEnabled, _mtsEnabled);
         propertiesFile->setValue(settings::uiScalingFactor, _uiScalingFactor);
         propertiesFile->setValue(settings::keyboardVisible, _keyboardVisible);
+        propertiesFile->setValue("voiceLimit", getVoiceLimitSetting());
+        propertiesFile->setValue("meterWarningPercent", getMeterWarningPercent());
+        propertiesFile->setValue("meterCriticalPercent", getMeterCriticalPercent());
     }
 
-    _globalProperties.saveIfNeeded();
+    if (!_globalProperties.saveIfNeeded()) {
+        const juce::String error = "Could not save application preferences; changes remain in memory.";
+        if (reportErrors) reportUserError("Settings", error);
+        else juce::Logger::writeToLog(error);
+    }
 }
 
 StringArray EngineGlobal::getAllStopNames() const
@@ -185,6 +196,7 @@ Rankwave* EngineGlobal::getStopByName(const String& name)
 
 void EngineGlobal::updateStops(float sampleRate)
 {
+    const std::lock_guard<std::mutex> registryLock(_rankwavesMutex);
     _sampleRate = sampleRate;
 
     ThreadPool threadPool;
@@ -230,9 +242,12 @@ String EngineGlobal::getMTSScaleName()
 
 float EngineGlobal::getMTSNoteToFrequency(int midiNote, int midiChannel)
 {
+#if AEOLUS_TESTING
+    if (const float base = _testMTSFrequencyBase.load(); base > 0) return base + midiNote * 1.25f;
+#endif
     if (_mtsClient == nullptr || !isConnectedToMTSMaster())
     {
-        return _scale.getFrequencyForMidoNote(midiNote);
+        return _scale.getFrequencyForMidoNote(midiNote, _tuningFrequency);
     }
 
     return (float)MTS_NoteToFrequency(_mtsClient, (char)midiNote, (char)midiChannel);
@@ -271,9 +286,7 @@ void EngineGlobal::rebuildRankwaves()
         rw->retunePipes(_scale, _tuningFrequency);
     }
 
-    // @note We don't kill active voices - they will be using pipes from a parallel set.
-    //       However, switching tuning very fast (while keeping the voice sustained)
-    //       may result in voice to be killed.
+    // Existing states retain immutable pipe generations until their tails finish.
 
     updateStops(_sampleRate);
 }
@@ -487,66 +500,84 @@ void EngineGlobal::pollStopFiles()
 
 namespace {
 class ScopedModelEdit final {
-    struct State { EngineGlobal::ProcessorProxy* proxy; bool suspended; unsigned audio; };
+    struct State { EngineGlobal::ProcessorProxy* proxy; unsigned audio; };
     std::vector<State> states;
 public:
     explicit ScopedModelEdit(const juce::Array<EngineGlobal::ProcessorProxy*>& processors) {
         states.reserve(size_t(processors.size()));
         for(auto* proxy:processors) {
             auto* processor=proxy->getAudioProcessor();
-            states.push_back({proxy,processor->isSuspended(),proxy->getEngine().getAudioState()});
+            processor->getCallbackLock().enter();
+            states.push_back({proxy,proxy->getEngine().getAudioState()});
             proxy->getEngine().setAudioPreparing();
-            processor->suspendProcessing(true);
         }
     }
     ~ScopedModelEdit() {
-        for(auto& state:states) {
-            state.proxy->getAudioProcessor()->suspendProcessing(state.suspended);
-            state.proxy->getEngine().restoreAudioState(state.audio);
+        for(auto state=states.rbegin();state!=states.rend();++state) {
+            state->proxy->getEngine().restoreAudioState(state->audio);
+            state->proxy->getAudioProcessor()->getCallbackLock().exit();
         }
     }
 };
 }
 
-void EngineGlobal::reloadStopFile(const File& file)
+bool EngineGlobal::reloadStopFile(const File& file)
 {
-    const auto name=file.getFileNameWithoutExtension();
-    auto* existing=getStopByName(name);
-    std::unique_ptr<ScopedModelEdit> edit;
-    if(existing!=nullptr) {
-        // Replacing live pipe storage would invalidate worker/voice pointers.
-        // Wait until all audible tails finish; do not turn a file poll into Panic.
-        for(auto* proxy:_processors) if(proxy->getNumberOfActiveVoices()>0) {
-            _deferredStopFiles.addIfNotAlreadyThere(file.getFullPathName());
-            return;
-        }
-        edit=std::make_unique<ScopedModelEdit>(_processors);
-        // A new note may have started before the callback-lock barrier.
-        for(auto* proxy:_processors) if(proxy->getNumberOfActiveVoices()>0) {
-            _deferredStopFiles.addIfNotAlreadyThere(file.getFullPathName());
-            return;
-        }
+    const auto path = file.getFullPathName();
+    if (!file.existsAsFile()) { _deferredStopFiles.removeString(path); return false; }
+    const auto name = file.getFileNameWithoutExtension();
+    auto* existing = getStopByName(name);
+    auto voicesActive = [&] {
+        for (auto* proxy : _processors) if (proxy->getNumberOfActiveVoices() > 0) return true;
+        return false;
+    };
+    if (existing && voicesActive()) { _deferredStopFiles.addIfNotAlreadyThere(path); return false; }
+
+    // File access, validation, allocations and waveform synthesis are private.
+    // Audio (including convolution tails and new MIDI) continues while preparing.
+    auto candidate = std::make_shared<Addsynth>();
+    if (candidate->readFromFile(file).failed()) {
+        reportUserError("Stop model", "Could not load the stop file; the existing model was retained: " + path);
+        _deferredStopFiles.removeString(path);
+        return false;
     }
-    _deferredStopFiles.removeString(file.getFullPathName());
-    auto* model=Model::getInstance();
-    if(model==nullptr || !model->reloadStopFromFile(file)) return;
-    if(existing!=nullptr) {
-        existing->recreateFromModel(_scale,_tuningFrequency);
-        if(_sampleRate>1.0f) existing->prepareToPlay(_sampleRate);
-    } else if(auto* synth=model->getStopByName(name)) {
-        // No voice can reference a new rank. Fully prepare its private storage
-        // before publishing it to the UI-side lookup; existing ranks stay intact.
-        auto rankwave=std::make_unique<Rankwave>(*synth);
-        rankwave->createPipes(_scale,_tuningFrequency);
-        if(_sampleRate>1.0f) rankwave->prepareToPlay(_sampleRate);
-        auto* ptr=rankwave.get();
+    candidate->setStopName(name);
+    auto staged = std::make_unique<Rankwave>(*candidate);
+    if (isMTSEnabled()) staged->retunePipes(_scale, _tuningFrequency, candidate);
+    else staged->createPipes(_scale, _tuningFrequency, candidate);
+    staged->prepareToPlay(_sampleRate.load());
+    auto* model = Model::getInstance();
+    if (existing) {
+        auto* original = model->getStopByName(name);
+        if (!original) return false;
+        Addsynth previous(*original); // retain old strings until callback ownership ends
+        existing->reserveModelReplacement();
+        {
+            ScopedModelEdit edit(_processors);
+            if (voicesActive()) { _deferredStopFiles.addIfNotAlreadyThere(path); return false; }
+            *original = *candidate;
+            existing->adoptPrepared(*staged);
+        }
+        existing->collectRetired(); // wave/model destruction remains off audio and outside callback ownership
+    } else {
+        auto* synth = model->addPreparedStop(*candidate);
+        if (!synth) return false;
+        auto rankwave = std::make_unique<Rankwave>(*synth);
+        rankwave->adoptPrepared(*staged);
+        auto* ptr = rankwave.get();
+        // Device prepare owns callback -> registry. Publication owns registry
+        // only, and never acquires a processor callback while holding it.
+        const std::lock_guard<std::mutex> registryLock(_rankwavesMutex);
         _rankwaves.add(rankwave.release());
-        _rankwavesByName.set(ptr->getStopName(),ptr);
+        _rankwavesByName.set(name, ptr);
     }
+    _deferredStopFiles.removeString(path);
+    return true;
 }
 
 void EngineGlobal::timerCallback()
 {
+    for (auto* rank : _rankwaves) rank->collectRetired();
     if(!_deferredStopFiles.isEmpty()) {
         bool idle=true;
         for(auto* proxy:_processors) idle &= proxy->getNumberOfActiveVoices()==0;
@@ -592,6 +623,8 @@ Engine::Engine()
     , _midiControlChannelsMask{ (1 << 16) - 1 }
     , _midiSwellChannelsMask{ (1 << 16) - 1 }
 {
+    _pendingVoices.resize((size_t) _voicePool.getMaxVoices());
+    _deferredReleases.resize((size_t) _voicePool.getMaxVoices());
     _voicePool.setPerVoiceRandom(_rtConfig.perVoiceRandom);
     prepareBatchRenderer();
 
@@ -610,7 +643,7 @@ Engine::~Engine()
     if(_panicControl) _panicControl->beginShutdown();
     // Hosts may destroy processors off the message thread. Wait for any timer
     // callback already in flight, then unregister before destroying members.
-    const MessageManagerLock messageLock;
+    const SetupMessageLock messageLock;
     stopTimer();
 
     if (_dspTeam != nullptr) {
@@ -711,6 +744,7 @@ void Engine::prepareToPlay(float sampleRate, int frameSize)
         // device reprepare. Drain any event that raced the initial panic.
         allNotesOff();
         for (auto* division : _divisions) division->emergencySilence();
+        for (auto* division : _retiredDivisions) division->emergencySilence();
     }
     if(resumeEpoch!=~0u && resumeEpoch==getPanicRequested() && !isEmergencyPanicPending()) {
         _panicMuted.store(false,std::memory_order_release);
@@ -774,6 +808,7 @@ bool Engine::isLimiterEnabled() const
 
 void Engine::process(float* outL, float* outR, int numFrames, bool isNonRealtime)
 {
+    processControlEvents();
     jassert(outL != nullptr);
     jassert(outR != nullptr);
 
@@ -859,6 +894,7 @@ void Engine::process(float* outL, float* outR, int numFrames, bool isNonRealtime
 
 void Engine::process(AudioBuffer<float>& out, bool isNonRealtime, int startSample, int numSamples)
 {
+    processControlEvents();
     ignoreUnused(isNonRealtime);
 
     const int numChannels = out.getNumChannels();
@@ -937,10 +973,22 @@ bool Engine::isPedalDivision(const Division* d) const
 
 Division* Engine::getPedalDivision()
 {
-    for (auto* d : _divisions)
-        if (isPedalDivision(d))
-            return d;
-    return nullptr;
+    return juce::isPositiveAndBelow(_pedalIndex, getDivisionCount()) ? _divisions[_pedalIndex] : nullptr;
+}
+
+namespace {
+void restoreEditedLayoutState(Engine& engine, const var& saved)
+{
+    auto compatible = saved.clone();
+    if (auto* object = compatible.getDynamicObject()) {
+        if (auto* divisions = object->getProperty("divisions").getArray()) {
+            while (divisions->size() > engine.getDivisionCount()) divisions->removeLast();
+            while (divisions->size() < engine.getDivisionCount())
+                divisions->add(engine.getDivisionByIndex(divisions->size())->getPersistentState());
+        }
+    }
+    engine.setPersistentState(compatible);
+}
 }
 
 void Engine::applyCouplerLayout(int sourceIndex, bool hasBassCoupler,
@@ -957,21 +1005,23 @@ void Engine::applyCouplerLayout(int sourceIndex, bool hasBassCoupler,
 
 void Engine::applyCouplerLayouts(const Array<CouplerEdits>& edits)
 {
-    allNotesOff();
-    ensureOrganDataFiles();
+    if (_invalidConfiguration) {
+        _lastError = "Rejected custom organ configuration was preserved. Repair organ_config.json and restart before editing."; return;
+    }
+    if (_owningProcessor && getAudioState() != 0 && !_owningProcessor->isSuspended()) {
+        _lastError = "Organ edits require suspended processing."; return;
+    }
+
     const auto configFile = getCustomOrganConfigFile();
-    if (!configFile.existsAsFile())
-        return;
+    if (!configFile.existsAsFile()) { _lastError = "Missing organ_config.json; edit was not applied."; return; }
 
     var config = JSON::parse(configFile.loadFileAsString());
     auto* obj = config.getDynamicObject();
-    if (obj == nullptr)
-        return;
+    if (obj == nullptr) { _lastError = "Cannot read organ_config.json; edit was not applied."; return; }
 
     auto divisionsVar = obj->getProperty("divisions");
     auto* arr = divisionsVar.getArray();
-    if (arr == nullptr)
-        return;
+    if (arr == nullptr) { _lastError = "Invalid organ divisions; edit was not applied."; return; }
 
     for (const auto& edit : edits)
     {
@@ -1035,31 +1085,42 @@ void Engine::applyCouplerLayouts(const Array<CouplerEdits>& edits)
             }
 
         obj->setProperty("divisions", divisionsVar);
-    configFile.replaceWithText(JSON::toString(config, true));
-
+    auto* configDivisions = config.getProperty("divisions", {}).getArray();
+    bool valid = configDivisions && configDivisions->size() >= 1 && configDivisions->size() <= 10;
+    if (configDivisions) for (const auto& item : *configDivisions) valid &= item.getDynamicObject() != nullptr;
+    if (!valid) { _lastError = "Organ configuration must contain 1 to 10 division objects."; return; }
     const var savedState = getPersistentState();
+    if (savedState.isVoid()) { _lastError = "Registration snapshot is busy; organ edit was not applied."; return; }
+    const auto serializedConfig = JSON::toString(config, true);
+    if (saveTextFile(configFile, serializedConfig).failed()) {
+        _lastError = "Could not save organ configuration: " + configFile.getFullPathName();
+        return;
+    }
 
-        _divisions.clear();
+
+        retireDivisions();
         {
-            FileInputStream stream(configFile);
+            MemoryInputStream stream(serializedConfig.toRawUTF8(), serializedConfig.getNumBytesAsUTF8(), false);
             loadDivisionsFromConfig(stream);
+        _invalidConfiguration = false;
         }
         for (auto* division : _divisions)
             division->clearLinkedDivisions();
         for (auto* division : _divisions)
             division->populateLinkedDivisions();
 
-        setPersistentState(savedState);
+        _sequencer->initFromEngine();
+        restoreEditedLayoutState(*this, savedState);
 
         for (auto* division : _divisions)
             division->ensurePresets();
-        if (_sequencer != nullptr)
-            _sequencer->initFromEngine();
-        requestSaveOrganState();
+        saveOrganState(); // setup thread: persist migrated layout state immediately
 }
 
 void Engine::processMIDIMessage(const MidiMessage& message)
 {
+    std::optional<StateWrite> write;
+    if (message.isController() || message.isProgramChange()) write.emplace(*this);
     // Process global CCs
     if (midi::matchChannelToMask(getMIDIControlChannelsMask(), message.getChannel())) {
         processControlMIDIMessage(message);
@@ -1076,6 +1137,181 @@ void Engine::processMIDIMessage(const MidiMessage& message)
     }
 }
 
+namespace {
+template<size_t N>
+void propagateAdmissionKeys(Engine& engine, std::array<std::bitset<TOTAL_NOTES>, N>& wanted)
+{
+    const int count = jmin(engine.getDivisionCount(), int(N));
+    // Only roots and arrivals through pass-through links can propagate again.
+    // Each (division,note) is visited at most once. Self octave links produce
+    // one extra pitch, never an octave cascade.
+    auto forwarding = wanted;
+    std::array<int, N * TOTAL_NOTES> queue; // only initialized entries are read
+    int read = 0, write = 0;
+    for (int d = 0; d < count; ++d)
+        for (int note = 0; note < TOTAL_NOTES; ++note)
+            if (forwarding[(size_t)d][(size_t)note]) queue[(size_t)write++] = d * TOTAL_NOTES + note;
+    while (read < write) {
+        const int key = queue[(size_t)read++], source = key / TOTAL_NOTES, note = key % TOTAL_NOTES;
+        auto& src = *engine.getDivisionByIndex(source);
+        for (int l = 0; l < src.getLinksCount(); ++l) {
+            const auto& link = src.getLinkByIndex(l);
+            if (!link.enabled) continue;
+            int target = 0;
+            while (target < count && engine.getDivisionByIndex(target) != link.division) ++target;
+            const int coupled = note + link.octaveShift;
+            if (target == count || !juce::isPositiveAndBelow(coupled, TOTAL_NOTES)) continue;
+            wanted[(size_t)target].set((size_t)coupled);
+            if (target != source && link.passThrough && !forwarding[(size_t)target][(size_t)coupled]) {
+                forwarding[(size_t)target].set((size_t)coupled);
+                queue[(size_t)write++] = target * TOTAL_NOTES + coupled;
+            }
+        }
+    }
+}
+}
+
+int Engine::getVoiceLimit() const noexcept
+{
+    const int requested = EngineGlobal::getInstance()->getVoiceLimitSetting();
+    return requested == 0 ? _voicePool.getMaxVoices() : jmin(requested, _voicePool.getMaxVoices());
+}
+
+void Engine::beginAdmission()
+{
+    jassert(!_collectingAdmission);
+    _collectingAdmission = true;
+    _admissionOverflow = getDivisionCount() > MaxNoteDivisions;
+    for (int i = 0; i < _pendingVoiceCount; ++i) _pendingVoices[(size_t)i].state.reset();
+    _pendingVoiceCount = _deferredReleaseCount = 0;
+    for (int i = 0; i < jmin(getDivisionCount(), MaxNoteDivisions); ++i) {
+        auto& d = *_divisions[i];
+        _admissionSnapshots[(size_t)i] = {d._keysState, d._aggregatedKeysState,
+            d._capacityBlockedKeys, d._bassCouplerNote, d._triggerFlag};
+        _admissionTouched[(size_t)i].reset();
+        for (auto& notes : d._admissionVoiced) notes.reset();
+        for (auto& notes : d._admissionStaged) notes.reset();
+        for (auto* voice = d._activeVoices.first(); voice; voice = voice->next()) {
+            const int stop = voice->stopIndex(), note = voice->getNote();
+            if (voice->isActive() && isPositiveAndBelow(stop, d._admissionVoiced.size())
+                && isPositiveAndBelow(note, TOTAL_NOTES))
+                d._admissionVoiced[(size_t)stop].set((size_t)note);
+        }
+    }
+}
+
+bool Engine::isDeferredRelease(const Voice* voice) const
+{
+    for (int i = 0; i < _deferredReleaseCount; ++i)
+        if (_deferredReleases[(size_t)i] == voice) return true;
+    return false;
+}
+
+void Engine::releaseVoiceOrDefer(Voice* voice)
+{
+    if (!_collectingAdmission) { voice->release(); return; }
+    if (!isDeferredRelease(voice)) {
+        jassert(_deferredReleaseCount < (int)_deferredReleases.size());
+        _deferredReleases[(size_t)_deferredReleaseCount++] = voice;
+    }
+}
+
+bool Engine::stageVoice(Division& division, int stopIndex, const Pipewave::State& state, int quantum)
+{
+    if (_collectingAdmission) {
+        if (getDivisionCount() > MaxNoteDivisions) return false;
+        for (int i = 0; i < jmin(getDivisionCount(), MaxNoteDivisions); ++i)
+            if (_divisions[i] == &division)
+                _admissionTouched[(size_t)i].set((size_t)state.pipewave->getNote());
+        if (_pendingVoiceCount == (int)_pendingVoices.size()) { _admissionOverflow = true; return false; }
+        _pendingVoices[(size_t)_pendingVoiceCount++] = {&division, state, stopIndex, quantum};
+        division._admissionStaged[(size_t)stopIndex].set((size_t)state.pipewave->getNote());
+        return true;
+    }
+    // Guard direct/internal calls as well. Normal dispatch always preflights a
+    // whole transaction; this guard never steals a voice or truncates a tail.
+    if (!_committingAdmission && getVoiceCount() >= getVoiceLimit()) return false;
+    if (auto* voice = _voicePool.trigger(state)) {
+        if (quantum > 0) voice->setBatchStart(quantum);
+        voice->setStopIndex(stopIndex);
+        division._activeVoices.append(voice);
+        return true;
+    }
+    return false;
+}
+
+void Engine::forecastAdmission()
+{
+    // The actual dispatcher and control pass use the same complete graph.
+    for (auto* d : _divisions) for (int note = 0; note < TOTAL_NOTES; ++note)
+        if (d->_aggregatedKeysState[(size_t)note]) d->triggerNoteInternal(note);
+}
+
+bool Engine::finishAdmission(int actualCount, bool restoreKeys, bool registration)
+{
+    const bool accepted = !_admissionOverflow &&
+        _pendingVoiceCount <= jmax(0, getVoiceLimit() - getVoiceCount());
+    _collectingAdmission = false;
+    for (int i = 0; i < jmin(getDivisionCount(), MaxNoteDivisions); ++i) {
+        auto& d = *_divisions[i];
+        const auto& saved = _admissionSnapshots[(size_t)i];
+        if (restoreKeys || !accepted) {
+            d._keysState = saved.keys;
+            d._aggregatedKeysState = saved.aggregated;
+            d._capacityBlockedKeys = saved.blocked;
+            d._bassCouplerNote = saved.bassNote;
+            d._triggerFlag = saved.triggered;
+        }
+        if (!accepted && registration) d._capacityBlockedKeys |= _admissionTouched[(size_t)i];
+    }
+    if (!accepted) {
+        if (registration) _rejectedRegistrations.fetch_add(1, std::memory_order_relaxed);
+        else _rejectedNotes.fetch_add(1, std::memory_order_relaxed);
+    } else if (!registration) {
+        for (int i = 0; i < _deferredReleaseCount; ++i) _deferredReleases[(size_t)i]->release();
+        _committingAdmission = true;
+        for (int i = 0; i < actualCount; ++i) {
+            const auto& p = _pendingVoices[(size_t)i];
+            stageVoice(*p.division, p.stopIndex, p.state, p.quantum);
+        }
+        _committingAdmission = false;
+    }
+    _controlVoiceCount = accepted && registration ? actualCount : 0;
+    for (int i = _controlVoiceCount; i < _pendingVoiceCount; ++i) _pendingVoices[(size_t)i].state.reset();
+    if (!registration) _pendingVoiceCount = 0;
+    return accepted;
+}
+
+void Engine::prepareControlAdmission(int quantum)
+{
+    updateKeyGraph();
+    beginAdmission();
+    // Release scheduling and DSP remain in the original control/render order.
+    for (auto* division : _divisions) division->controlStep(quantum);
+    const int actualCount = _pendingVoiceCount;
+    const unsigned revision = _registrationRevision.load(std::memory_order_relaxed);
+    const int limit = getVoiceLimit();
+    if (revision != _admittedRegistrationRevision || limit != _admittedVoiceLimit)
+        forecastAdmission();
+    _admittedRegistrationRevision = revision;
+    _admittedVoiceLimit = limit;
+    finishAdmission(actualCount, true, true);
+    _controlAdmissionReady = true;
+}
+
+void Engine::commitControlAdmission(Division& division)
+{
+    _committingAdmission = true;
+    for (int i = 0; i < _controlVoiceCount; ++i) {
+        const auto& p = _pendingVoices[(size_t)i];
+        if (p.division == &division) {
+            stageVoice(division, p.stopIndex, p.state, p.quantum);
+            _pendingVoices[(size_t)i].state.reset();
+        }
+    }
+    _committingAdmission = false;
+}
+
 void Engine::noteOn(int note, int midiChannel)
 {
     if (isEmergencyMuted()) return;
@@ -1083,8 +1319,8 @@ void Engine::noteOn(int note, int midiChannel)
 
     bool handled = false;
     if (midi::matchChannelToMask(getMIDIControlChannelsMask(), midiChannel)) {
-        if (isKeySwitchBackward(note)) { _sequencer->stepBackward(); handled = true; }
-        else if (isKeySwitchForward(note)) { _sequencer->stepForward(); handled = true; }
+        if (isKeySwitchBackward(note)) { StateWrite write(*this); _sequencer->stepBackward(); handled = true; }
+        else if (isKeySwitchForward(note)) { StateWrite write(*this); _sequencer->stepForward(); handled = true; }
     }
     if (handled)
         return;
@@ -1093,120 +1329,65 @@ void Engine::noteOn(int note, int midiChannel)
     if (g->shouldMTSFilterNote(note, midiChannel))
         return;
 
-    // Fixed storage: this runs on the audio thread for every note event.
-    const int nDiv = jmin(getDivisionCount(), (int) MaxNoteDivisions);
-    jassert(nDiv == getDivisionCount());
-    std::array<char, MaxNoteDivisions> skipLocal{};
+    if (note < 0 || note >= TOTAL_NOTES) return;
+    std::array<uint16_t, MaxNoteDivisions> previous{};
+    const int channel = jlimit(1, 16, midiChannel) - 1;
+    for (int i = 0; i < getDivisionCount(); ++i) previous[(size_t)i] = _divisions[i]->_held[(size_t)channel][(size_t)note];
+    updateKeyGraph(); // exclude prior control/MIDI graph edits from this note's delta
+    beginAdmission();
+    dispatchNoteOn(note, midiChannel);
+    const int actualCount = _pendingVoiceCount;
+    if (!finishAdmission(actualCount, false, false))
+        for (int i = 0; i < getDivisionCount(); ++i) _divisions[i]->_held[(size_t)channel][(size_t)note] = previous[(size_t)i];
+}
 
-    for (int i = 0; i < nDiv; ++i)
-    {
-        auto* src = getDivisionByIndex(i);
-        if (midiChannel != 0 && !src->isForMIDIChannel(midiChannel))
-            continue;
-
-        for (int L = 0; L < src->getLinksCount(); ++L)
-        {
-            auto& link = src->getLinkByIndex(L);
-            if (!link.enabled || link.division == src)
-                continue;
-            for (int j = 0; j < nDiv; ++j)
-                if (getDivisionByIndex(j) == link.division)
-                    skipLocal[(size_t)j] = 1;
+void Engine::updateKeyGraph()
+{
+    std::array<std::bitset<TOTAL_NOTES>, MaxNoteDivisions> wanted{};
+    const int count = jmin(getDivisionCount(), MaxNoteDivisions);
+    int pedal = -1;
+    for (int i = 0; i < count; ++i) {
+        wanted[(size_t)i] = _divisions[i]->_keysState;
+        if (_divisions[i] == getPedalDivision()) pedal = i;
+    }
+    if (pedal >= 0) for (int i = 0; i < count; ++i) {
+        auto& d = *_divisions[i];
+        d._bassCouplerNote = -1;
+        if (i == pedal || !d.isBassCouplerEnabled()) continue;
+        for (int note = 0; note < TOTAL_NOTES; ++note) if (d._keysState[(size_t)note]) {
+            wanted[(size_t)pedal].set((size_t)note);
+            d._bassCouplerNote = note;
+            break;
         }
     }
+    propagateAdmissionKeys(*this, wanted);
+    for (int i = 0; i < count; ++i) _divisions[i]->_aggregatedKeysState = wanted[(size_t)i];
+}
 
-    for (int i = 0; i < nDiv; ++i)
-    {
-        if (skipLocal[(size_t)i])
-            continue;
-        getDivisionByIndex(i)->noteOn(note, midiChannel, false);
-    }
-
-    for (int i = 0; i < nDiv; ++i)
-    {
-        auto* src = getDivisionByIndex(i);
-        if (midiChannel != 0 && !src->isForMIDIChannel(midiChannel))
-            continue;
-
-        for (int L = 0; L < src->getLinksCount(); ++L)
-        {
-            auto& link = src->getLinkByIndex(L);
-            if (!link.enabled)
-                continue;
-
-            int shift = link.octaveShift;
-                        if (shift == 1) shift = 12;
-                        else if (shift == -1) shift = -12;
-                        else if (shift != 12 && shift != -12) shift = 0;
-
-                        const int coupledNote = note + shift;
-            if (coupledNote < 0 || coupledNote >= TOTAL_NOTES)
-                continue;
-
-            link.division->triggerNoteInternal(coupledNote);
-        }
+void Engine::dispatchNoteOn(int note, int midiChannel)
+{
+    for (auto* d : _divisions) d->noteOn(note, midiChannel, false);
+    updateKeyGraph();
+    // A note transaction owns only newly reached keys. Unrelated held-key
+    // registration additions are admitted separately at the control quantum.
+    for (int i = 0; i < getDivisionCount(); ++i) {
+        auto* d = _divisions[i];
+        const auto added = d->_aggregatedKeysState & ~_admissionSnapshots[(size_t)i].aggregated;
+        for (int key = 0; key < TOTAL_NOTES; ++key)
+            if (added[(size_t)key]) d->triggerNoteInternal(key);
     }
 }
 
 void Engine::noteOff(int note, int midiChannel)
 {
-    clearDivisionsTriggerFlag();
-
-    // Fixed storage: this runs on the audio thread for every note event.
-    const int nDiv = jmin(getDivisionCount(), (int) MaxNoteDivisions);
-    jassert(nDiv == getDivisionCount());
-    std::array<char, MaxNoteDivisions> skipLocal{};
-
-    for (int i = 0; i < nDiv; ++i)
-    {
-        auto* src = getDivisionByIndex(i);
-        if (midiChannel != 0 && !src->isForMIDIChannel(midiChannel))
-            continue;
-
-        for (int L = 0; L < src->getLinksCount(); ++L)
-        {
-            auto& link = src->getLinkByIndex(L);
-            if (!link.enabled || link.division == src)
-                continue;
-            for (int j = 0; j < nDiv; ++j)
-                if (getDivisionByIndex(j) == link.division)
-                    skipLocal[(size_t)j] = 1;
-        }
-    }
-
-    for (int i = 0; i < nDiv; ++i)
-    {
-        if (skipLocal[(size_t)i])
-            continue;
-        getDivisionByIndex(i)->noteOff(note, midiChannel, false);
-    }
-
-    for (int i = 0; i < nDiv; ++i)
-    {
-        auto* src = getDivisionByIndex(i);
-        if (midiChannel != 0 && !src->isForMIDIChannel(midiChannel))
-            continue;
-
-        for (int L = 0; L < src->getLinksCount(); ++L)
-        {
-            auto& link = src->getLinkByIndex(L);
-            if (!link.enabled)
-                continue;
-
-            int shift = link.octaveShift;
-                        if (shift == 1) shift = 12;
-                        else if (shift == -1) shift = -12;
-                        else if (shift != 12 && shift != -12) shift = 0;
-
-                        const int coupledNote = note + shift;
-            if (coupledNote < 0 || coupledNote >= TOTAL_NOTES)
-                continue;
-
-            link.division->releaseNoteInternal(coupledNote);
-        }
+    if (!isPositiveAndBelow(note, TOTAL_NOTES)) return;
+    for (auto* d : _divisions) d->noteOff(note, midiChannel, false);
+    updateKeyGraph();
+    for (auto* d : _divisions) {
+        d->_capacityBlockedKeys &= d->_aggregatedKeysState;
+        d->releaseVoicesOfDisabledStops();
     }
 }
-
 
 void Engine::applyEmergencyPanic()
 {
@@ -1215,6 +1396,7 @@ void Engine::applyEmergencyPanic()
     _panicMuted.store(true, std::memory_order_release);
     allNotesOff();
     for (auto* division : _divisions) division->emergencySilence();
+    for (auto* division : _retiredDivisions) division->emergencySilence();
     _batchQuanta = _batchNext = _remainedSamples = 0;
     _subFrameBuffer.clear();
     _interpolator.reset();
@@ -1284,6 +1466,19 @@ Division* Engine::getDivisionByName(const String& name)
 
 var Engine::getPersistentState() const
 {
+    for (int attempt = 0; attempt < 64; ++attempt) {
+        const auto before = _stateSequence.load();
+        if (before & 1) { std::this_thread::yield(); continue; }
+        auto state = collectPersistentState();
+        if (_stateSequence.load() == before) return state;
+        std::this_thread::yield();
+    }
+    const_cast<Engine*>(this)->requestSaveOrganState();
+    return {}; // never write stale state; timer retries, host snapshots suspend first
+}
+
+var Engine::collectPersistentState() const
+{
     auto* obj = new DynamicObject();
 
     // Save control channel
@@ -1310,9 +1505,24 @@ var Engine::getPersistentState() const
     return var{obj};
 }
 
+bool Engine::canRestoreState(const var& state) const
+{
+    const auto* object = state.getDynamicObject();
+    if (!object) return false;
+    if (object->hasProperty("divisions")) {
+        const auto* divisions = object->getProperty("divisions").getArray();
+        if (!divisions || divisions->size() != getDivisionCount()) return false;
+        for (const auto& division : *divisions) if (!division.getDynamicObject()) return false;
+    }
+    return true;
+}
+
 void Engine::setPersistentState(const var& state)
 {
+    if (!canRestoreState(state)) return;
     if (const auto* obj = state.getDynamicObject()) {
+        if (auto* divisions = obj->getProperty("divisions").getArray())
+            if (divisions->size() != getDivisionCount()) return;
         // Restore control channels
 
         if (const auto& v = obj->getProperty("window_width"); !v.isVoid())
@@ -1326,7 +1536,7 @@ void Engine::setPersistentState(const var& state)
             if (ch == 0)
                 setMIDIControlChannelsMask((1 << 16) - 1);
             else
-                setMIDIControlChannelsMask(1 << (ch - 1));
+                setMIDIControlChannelsMask(midi::channelToMask(ch));
         } else {
             setMIDIControlChannelsMask(obj->getProperty("midi_ctrl_channels_mask"));
         }
@@ -1336,7 +1546,7 @@ void Engine::setPersistentState(const var& state)
             if (ch == 0)
                 setMIDISwellChannelsMask((1 << 16) - 1);
             else
-                setMIDISwellChannelsMask(1 << (ch - 1));
+                setMIDISwellChannelsMask(midi::channelToMask(ch));
         } else {
             setMIDISwellChannelsMask(obj->getProperty("midi_swell_channels_mask"));
         }
@@ -1374,13 +1584,15 @@ void Engine::loadOrganState()
     if (!stateFile.existsAsFile())
         return;
 
+    if (stateFile.getSize() == 0) return; // no prior state to preserve
     const auto text = stateFile.loadFileAsString();
-    if (text.isEmpty())
-        return;
-
     const auto state = JSON::parse(text);
-    if (state.isVoid())
+    if (!canRestoreState(state)) {
+        _invalidStateFile = true;
+        if (_lastError.isNotEmpty() && !_lastError.endsWithChar('\n')) _lastError += "\n";
+        _lastError += "Invalid or incompatible organ_state.json was preserved; saving is disabled for this session. Repair or remove it and restart to enable saving.";
         return;
+    }
 
     if (auto* obj = state.getDynamicObject())
     {
@@ -1395,11 +1607,15 @@ void Engine::loadOrganState()
 
 void Engine::saveOrganState() const
 {
+    if (_invalidConfiguration || _invalidStateFile) return; // preserve the state belonging to the rejected custom organ
     const auto stateFile = getOrganStateFile();
     const auto state = getPersistentState();
+    if (state.isVoid()) { const_cast<Engine*>(this)->requestSaveOrganState(); return; }
     const auto text = JSON::toString(state, true); // pretty-print
 
-    stateFile.replaceWithText(text);
+    if (saveTextFile(stateFile, text).failed()) {
+        _lastError = "Could not save organ state: " + stateFile.getFullPathName();
+    }
 }
 
 void Engine::requestSaveOrganState()
@@ -1414,6 +1630,10 @@ void Engine::timerCallback()
     // Audio/MIDI code only sets a flag. Timer lifetime is tied to the engine;
     // no queued lambda can dereference an engine after destruction.
     reportRealtimeStatus();
+    if (_lastError.isNotEmpty()) {
+        auto error = _lastError; _lastError.clear();
+        aeolus::reportUserError( "Aeolus", error);
+    }
 
     {
         const std::lock_guard<std::mutex> preparationLock(_reverbPreparationMutex);
@@ -1427,7 +1647,8 @@ void Engine::timerCallback()
 
 void Engine::populateDivisions()
 {
-    ensureOrganDataFiles();
+    if (auto result = ensureOrganDataFiles(); result.failed()) _lastError += "Configuration setup: " + result.getErrorMessage() + "\n";
+    if (auto* model = Model::getInstance(); model->getLoadError().isNotEmpty()) _lastError += "Stop data: " + model->getLoadError() + "\n";
 
     const auto configFile = getCustomOrganConfigFile();
 
@@ -1440,6 +1661,12 @@ void Engine::populateDivisions()
         loadDivisionsFromConfig(stream);
     }
 
+    if (_divisions.isEmpty()) {
+        _invalidConfiguration = true;
+        _lastError += "Invalid organ configuration; using the embedded organ without overwriting your files.\n";
+        MemoryInputStream fallback(BinaryData::default_organ_json, BinaryData::default_organ_jsonSize, false);
+        loadDivisionsFromConfig(fallback);
+    }
     // Remove all the links if any.
     for (auto* division : _divisions) {
         division->clearLinkedDivisions();
@@ -1494,27 +1721,27 @@ static juce::String romanDivisionName(int indexZeroBased)
 
 void Engine::applyDivisionLayout(int count, const juce::StringArray& names)
 {
-    count = jlimit(1, 10, count);
-    allNotesOff();
+    if (_owningProcessor && getAudioState() != 0 && !_owningProcessor->isSuspended()) {
+        _lastError = "Organ edits require suspended processing."; return;
+    }
 
-    ensureOrganDataFiles();
+    count = jlimit(1, 10, count);
+
     const auto configFile = getCustomOrganConfigFile();
 
-    var config;
-    if (configFile.existsAsFile())
-        config = JSON::parse(configFile.loadFileAsString());
-    else
-        config = JSON::parse(String::fromUTF8(BinaryData::default_organ_json,
-                                              BinaryData::default_organ_jsonSize));
+    if (!configFile.existsAsFile()) { _lastError = "Missing organ_config.json; edit was not applied."; return; }
+    var config = JSON::parse(configFile.loadFileAsString());
 
     auto* obj = config.getDynamicObject();
-    if (obj == nullptr)
-        return;
-
-    if (!obj->getProperty("divisions").isArray())
-        obj->setProperty("divisions", Array<var>());
+    if (obj == nullptr) { _lastError = "Cannot read organ_config.json; edit was not applied."; return; }
 
     auto* arr = obj->getProperty("divisions").getArray();
+    bool sourceValid = arr && arr->size() >= 1 && arr->size() <= 10;
+    if (arr) for (const auto& division : *arr) sourceValid &= division.getDynamicObject() != nullptr;
+    if (_invalidConfiguration || !sourceValid) {
+        _lastError = "Rejected custom organ configuration was preserved. Repair organ_config.json and restart before editing.";
+        return;
+    }
 
     while (arr->size() > count)
         arr->remove(arr->size() - 1);
@@ -1545,53 +1772,69 @@ void Engine::applyDivisionLayout(int count, const juce::StringArray& names)
         d->setProperty("name", name);
     }
 
-    configFile.replaceWithText(JSON::toString(config, true));
-
+    auto* configDivisions = config.getProperty("divisions", {}).getArray();
+    bool valid = configDivisions && configDivisions->size() >= 1 && configDivisions->size() <= 10;
+    if (configDivisions) for (const auto& item : *configDivisions) valid &= item.getDynamicObject() != nullptr;
+    if (!valid) { _lastError = "Organ configuration must contain 1 to 10 division objects."; return; }
     const var savedState = getPersistentState();
+    if (savedState.isVoid()) { _lastError = "Registration snapshot is busy; organ edit was not applied."; return; }
+    const auto serializedConfig = JSON::toString(config, true);
+    if (saveTextFile(configFile, serializedConfig).failed()) {
+        _lastError = "Could not save organ configuration: " + configFile.getFullPathName();
+        return;
+    }
 
-    _divisions.clear();
+
+    retireDivisions();
     {
-        FileInputStream stream(configFile);
+        MemoryInputStream stream(serializedConfig.toRawUTF8(), serializedConfig.getNumBytesAsUTF8(), false);
         loadDivisionsFromConfig(stream);
+        _invalidConfiguration = false;
     }
     for (auto* division : _divisions)
         division->clearLinkedDivisions();
     for (auto* division : _divisions)
         division->populateLinkedDivisions();
 
-    setPersistentState(savedState);
+    _sequencer->initFromEngine();
+    restoreEditedLayoutState(*this, savedState);
 
     for (auto* division : _divisions)
         division->ensurePresets();
-    if (_sequencer != nullptr)
-        _sequencer->initFromEngine();
-    requestSaveOrganState();
+    saveOrganState(); // setup thread: persist migrated layout state immediately
 }
 
-void Engine::applyDivisionStops(int divisionIndex, const StringArray& pipeNames, bool reload)
+bool Engine::applyDivisionStops(int divisionIndex, const StringArray& pipeNames, bool reload, var* pendingConfig)
 {
-    allNotesOff();
-    ensureOrganDataFiles();
+    if (_invalidConfiguration) {
+        _lastError = "Rejected custom organ configuration was preserved. Repair organ_config.json and restart before editing."; return false;
+    }
+    if (_owningProcessor && getAudioState() != 0 && !_owningProcessor->isSuspended()) {
+        _lastError = "Organ edits require suspended processing."; return false;
+    }
+
 
     const auto configFile = getCustomOrganConfigFile();
+    if (!configFile.existsAsFile()) { _lastError = "Missing organ_config.json; edit was not applied."; return false; }
     var config;
-    if (configFile.existsAsFile())
+    if (pendingConfig) config = pendingConfig->clone();
+    else if (configFile.existsAsFile())
         config = JSON::parse(configFile.loadFileAsString());
-    else
-        return;
+    else { _lastError = "Missing organ_config.json; edit was not applied."; return false; }
 
     auto* obj = config.getDynamicObject();
-    if (obj == nullptr)
-        return;
+    if (obj == nullptr) { _lastError = "Cannot read organ_config.json; edit was not applied."; return false; }
 
     auto divisionsVar = obj->getProperty("divisions");
     auto* arr = divisionsVar.getArray();
-    if (arr == nullptr || !isPositiveAndBelow(divisionIndex, arr->size()))
-        return;
+    if (arr == nullptr || !isPositiveAndBelow(divisionIndex, arr->size())) {
+        _lastError = "Stop edit targets a division missing from organ_config.json; nothing was applied."; return false;
+    }
 
     auto* divObj = arr->getReference(divisionIndex).getDynamicObject();
-    if (divObj == nullptr)
-        return;
+    if (divObj == nullptr) {
+        _lastError = "Invalid division object; stop edit was not applied."; return false;
+    }
 
     Array<var> stops;
     auto* model = Model::getInstance();
@@ -1718,41 +1961,62 @@ void Engine::applyDivisionStops(int divisionIndex, const StringArray& pipeNames,
 
     divObj->setProperty("stops", stops);
     obj->setProperty("divisions", divisionsVar);
-    configFile.replaceWithText(JSON::toString(config, true));
-
-    if (!reload)
-        return;
-
-        const var savedState = getPersistentState();
-
-        _divisions.clear();
-        {
-            FileInputStream stream(configFile);
-            loadDivisionsFromConfig(stream);
-        }
-        for (auto* division : _divisions)
-            division->clearLinkedDivisions();
-        for (auto* division : _divisions)
-            division->populateLinkedDivisions();
-
-        setPersistentState(savedState);
-
-        for (auto* division : _divisions)
-            division->ensurePresets();
-        if (_sequencer != nullptr)
-            _sequencer->initFromEngine();
-        requestSaveOrganState();
+    if (pendingConfig && !reload) { *pendingConfig = config; return true; }
+    auto* configDivisions = config.getProperty("divisions", {}).getArray();
+    bool valid = configDivisions && configDivisions->size() >= 1 && configDivisions->size() <= 10;
+    if (configDivisions) for (const auto& item : *configDivisions) valid &= item.getDynamicObject() != nullptr;
+    if (!valid) { _lastError = "Organ configuration must contain 1 to 10 division objects."; return false; }
+    const var savedState = getPersistentState();
+    if (savedState.isVoid()) { _lastError = "Registration snapshot is busy; organ edit was not applied."; return false; }
+    const auto serializedConfig = JSON::toString(config, true);
+    if (saveTextFile(configFile, serializedConfig).failed()) {
+        _lastError = "Could not save organ configuration: " + configFile.getFullPathName();
+        return false;
     }
 
-void Engine::applyDivisionStopsList(const Array<DivisionStopEdits>& edits)
-{
-    if (edits.isEmpty())
-        return;
+    if (!reload)
+        return true;
 
+
+    retireDivisions();
+    {
+        MemoryInputStream stream(serializedConfig.toRawUTF8(), serializedConfig.getNumBytesAsUTF8(), false);
+        loadDivisionsFromConfig(stream);
+        _invalidConfiguration = false;
+    }
+    for (auto* division : _divisions)
+        division->clearLinkedDivisions();
+    for (auto* division : _divisions)
+        division->populateLinkedDivisions();
+
+    _sequencer->initFromEngine();
+    restoreEditedLayoutState(*this, savedState);
+
+    for (auto* division : _divisions)
+        division->ensurePresets();
+    saveOrganState(); // setup thread: persist migrated layout state immediately
+    return true;
+}
+
+bool Engine::applyDivisionStopsList(const Array<DivisionStopEdits>& edits)
+{
+    if (edits.isEmpty()) return true;
+
+    auto config = JSON::parse(getCustomOrganConfigFile().loadFileAsString());
+    if (!config.isObject() || !config.getProperty("divisions",{}).isArray()) {
+        _lastError = "Cannot read organ_config.json; stop edits were not applied."; return false;
+    }
+    for (const auto& division : *config.getProperty("divisions",{}).getArray()) if (!division.getDynamicObject()) {
+        _lastError = "Invalid division object; stop edits were not applied."; return false;
+    }
+    for (const auto& edit : edits) if (!isPositiveAndBelow(edit.divisionIndex, getDivisionCount())) {
+        _lastError = "Stop edit targets a missing division; nothing was applied."; return false;
+    }
     for (int i = 0; i < edits.size(); ++i)
-        applyDivisionStops(edits.getReference(i).divisionIndex,
+        if (!applyDivisionStops(edits.getReference(i).divisionIndex,
                            edits.getReference(i).pipeNames,
-                           i == edits.size() - 1);
+                           i == edits.size() - 1, &config)) return false;
+    return true;
 }
 
 // @internal Helper to populate key switches from a single number or a list
@@ -1779,6 +2043,14 @@ void Engine::loadDivisionsFromConfig(InputStream& stream)
     auto config = JSON::parse(stream);
 
     if (auto* divisions = config.getProperty("divisions", {}).getArray()) {
+        if (divisions->isEmpty() || divisions->size() > 10) {
+            _invalidConfiguration = true;
+            _lastError += "Organ configuration must contain 1 to 10 divisions.\n";
+            return;
+        }
+        for (const auto& item : *divisions) if (!item.getDynamicObject()) {
+            _invalidConfiguration = true; _lastError += "Invalid division object in organ configuration.\n"; return;
+        }
         for (int i = 0; i < divisions->size(); ++i) {
             if (auto* divisionObj = divisions->getUnchecked(i).getDynamicObject()) {
                 auto division = std::make_unique<Division>(*this);
@@ -1797,6 +2069,12 @@ void Engine::loadDivisionsFromConfig(InputStream& stream)
         if (var v = sequencer->getProperty("forward_key"); !v.isVoid())
             populateKeySwitchesVector(_sequencerStepForwardKeySwitches, v);
     }
+    _pedalIndex = -1;
+    for (int i = 0; i < _divisions.size(); ++i) if (_divisions[i]->getName().containsIgnoreCase("Pedal")) { _pedalIndex = i; break; }
+    if (_pedalIndex < 0 && !_divisions.isEmpty()) _pedalIndex = _divisions.size()-1;
+    _renderDivisions.clear();
+    for (auto* division : _divisions) _renderDivisions.push_back(division);
+    for (auto* division : _retiredDivisions) _renderDivisions.push_back(division);
 }
 
 void Engine::clearDivisionsTriggerFlag()
@@ -1812,6 +2090,24 @@ void Engine::postNoteEvent(bool onOff, int note, int midiChannel)
         _noteQueueOverflow.store(true);
 }
 
+void Engine::retireDivisions()
+{
+    _layoutEpoch.fetch_add(1);
+    // Setup thread, with processing suspended by the editor. Destruction and
+    // vector growth stay here; the callback only renders/recycles tail voices.
+    for (int i = _retiredDivisions.size(); --i >= 0;)
+        if (_retiredDivisions[i]->getActiveVoices().first() == nullptr)
+            _retiredDivisions.remove(i);
+    while (!_divisions.isEmpty()) {
+        auto* division = _divisions.removeAndReturn(0);
+        division->retire();
+        _retiredDivisions.add(division);
+    }
+    _renderDivisions.clear();
+    for (auto* d : _retiredDivisions) _renderDivisions.push_back(d);
+    _pedalIndex = -1;
+}
+
 bool Engine::processSubFrame()
 {
     jassert(_subFrameBuffer.getNumChannels() == _divisionFrameBuffer.getNumChannels());
@@ -1821,8 +2117,9 @@ bool Engine::processSubFrame()
 
     _subFrameBuffer.clear();
 
+    prepareControlAdmission();
     bool wasAudioGenerated = false;
-    for (auto* division : _divisions) {
+    auto renderDivision = [&](Division* division) {
 
         _divisionFrameBuffer.clear();
 
@@ -1843,7 +2140,11 @@ bool Engine::processSubFrame()
         division->volumeLevel().left.process(_divisionFrameBuffer, 0);
         division->volumeLevel().right.process(_divisionFrameBuffer, 1);
 #endif
-    }
+    };
+
+    for (auto* division : _divisions) renderDivision(division);
+    for (auto* division : _retiredDivisions)
+        if (division->getActiveVoices().first()) renderDivision(division);
 
     _remainedSamples = SUB_FRAME_LENGTH;
 
@@ -1945,7 +2246,7 @@ void Engine::buildBatchJobs(int groupSize)
         _batchDivisionJobs.clear();
         bool overflow = false;
 
-        for (auto* division : _divisions) {
+        for (auto* division : _renderDivisions) {
             _batchDivisionJobs.push_back((int) _batchJobs.size());
             auto* voice = division->getActiveVoices().first();
 
@@ -2022,9 +2323,9 @@ void Engine::renderBatch(int numQuanta)
     _batchQuanta = 0;
     _batchNext = 0;
 
-    if (_divisions.size() > MaxBatchDivisions) {
+    if (_renderDivisions.size() > MaxBatchDivisions) {
         // Unsupported layout: render serially into the batch buffer.
-        jassertfalse;
+        // Several generations of release tails may exceed the grouped layout capacity.
 
         for (int q = 0; q < numQuanta; ++q) {
             processSubFrame();
@@ -2042,15 +2343,17 @@ void Engine::renderBatch(int numQuanta)
     // which later control steps observe (a stop with no remaining voices for
     // held keys is retriggered). End the batch at the first quantum in which
     // any voice finishes, so finished voices are reclaimed at the same point.
-    for (auto* division : _divisions)
+    for (auto* division : _renderDivisions)
         for (auto* voice = division->getActiveVoices().first(); voice != nullptr; voice = voice->next())
             numQuanta = jmin(numQuanta, voice->predictFinishQuantum(numQuanta) + 1);
 
     // Control steps for every quantum, in serial order. Releases scheduled
     // here may shorten the batch further.
-    for (int q = 0; q < numQuanta; ++q)
-        for (auto* division : _divisions)
+    for (int q = 0; q < numQuanta; ++q) {
+        prepareControlAdmission(q);
+        for (auto* division : _renderDivisions)
             division->controlStep(q, &numQuanta);
+    }
 
     // Render all voices for the whole batch.
     buildBatchJobs(_rtConfig.dspGroupSize);
@@ -2068,8 +2371,9 @@ void Engine::renderBatch(int numQuanta)
         generateTremulant();
         _subFrameBuffer.clear();
 
-        for (int d = 0; d < _divisions.size(); ++d) {
-            auto* division = _divisions[d];
+        for (int d = 0; d < (int)_renderDivisions.size(); ++d) {
+            auto* division = _renderDivisions[(size_t)d];
+            if (division->_retired && _batchDivisionJobs[(size_t)d] == _batchDivisionJobs[(size_t)d+1]) continue;
             _divisionFrameBuffer.clear();
             bool hasVoices = false;
 
@@ -2102,7 +2406,7 @@ void Engine::renderBatch(int numQuanta)
     }
 
     // Return finished voices to the pool.
-    for (auto* division : _divisions) {
+    for (auto* division : _renderDivisions) {
         auto& voices = division->getActiveVoices();
         auto* voice = voices.first();
 
@@ -2250,6 +2554,9 @@ void Engine::processStopControlMessage()
     auto* division{ _divisions.getUnchecked(_stopControlGroup) };
 
     const auto mode{ *_stopControlMode };
+    if (mode != StopControlMode::Disabled
+        && !isPositiveAndBelow(_stopControlButton, division->getStopsCount()))
+        return;
 
     switch (mode) {
         case StopControlMode::Disabled:
@@ -2285,13 +2592,13 @@ bool Engine::isKeySwitchBackward(int key) const
 
 void Engine::setMIDIControlChannelsMask(int mask)
 {
-    _midiControlChannelsMask = mask;
+    _midiControlChannelsMask = mask & 0xffff;
     requestSaveOrganState();
 }
 
 void Engine::setMIDISwellChannelsMask(int mask)
 {
-    _midiSwellChannelsMask = mask;
+    _midiSwellChannelsMask = mask & 0xffff;
     requestSaveOrganState();
 }
 
@@ -2326,4 +2633,68 @@ void Engine::setWindowSize(int width, int height)
     requestSaveOrganState();
 }
 
+AEOLUS_NAMESPACE_END
+
+AEOLUS_NAMESPACE_BEGIN
+void Engine::requestProgram(int index) noexcept
+{
+    _requestedProgram.store(index);
+    if (_owningProcessor && getAudioState() == 0) {
+        const juce::ScopedLock callbackLock(_owningProcessor->getCallbackLock());
+        if (getAudioState() == 0) applyPendingControlsForSetup();
+    }
+}
+
+bool Engine::postUIControl(ControlAction action, int division, int index, int value)
+{
+    jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
+    if (_controlEvents.send({action, division, index, value, _layoutEpoch.load()})) {
+        if (_owningProcessor && getAudioState() == 0) {
+            const juce::ScopedLock callbackLock(_owningProcessor->getCallbackLock());
+            if (getAudioState() == 0) applyPendingControlsForSetup();
+        }
+        return true;
+    }
+    _rejectedControls.fetch_add(1);
+    aeolus::reportUserError(
+        "Control queue full", "This control change was not applied. Please try again.");
+    return false;
+}
+void Engine::processControlEvents(int budget)
+{
+    std::optional<StateWrite> write;
+    ControlEvent event;
+    for (int count = 0; count < budget && _controlEvents.receive(event); ++count) {
+        if (event.epoch != _layoutEpoch.load()) { _rejectedControls.fetch_add(1); continue; }
+        if (!write) write.emplace(*this);
+        auto* d = juce::isPositiveAndBelow(event.division, getDivisionCount()) ? _divisions[event.division] : nullptr;
+        switch (event.action) {
+            case ControlAction::Stop: if (d) d->enableStop(event.index, event.value != 0); break;
+            case ControlAction::Link: if (d) d->enableLink(event.index, event.value != 0); break;
+            case ControlAction::Tremulant: if (d) d->setTremulantEnabled(event.value != 0); break;
+            case ControlAction::Bass: if (d) d->setBassCouplerEnabled(event.value != 0); break;
+            case ControlAction::CapturePreset: if (d) d->capturePreset(event.index); break;
+            case ControlAction::RecallPreset: if (d) d->recallPreset(event.index); break;
+            case ControlAction::DisableStops: if (d) d->disableAllStops(); break;
+            case ControlAction::CancelStops:
+                if (d) { d->disableAllStops(); d->setBassCouplerEnabled(false); } break;
+            case ControlAction::GeneralCancel:
+                for (auto* division : _divisions) {
+                    division->disableAllStops(); division->setBassCouplerEnabled(false);
+                    division->cancelAllLinks(); division->setTremulantEnabled(false);
+                }
+                break;
+            case ControlAction::CancelLinks: if (d) d->cancelAllLinks(); break;
+            case ControlAction::DivisionMask: if (d) d->setMIDIChannelsMask(event.value); break;
+            case ControlAction::ControlMask: setMIDIControlChannelsMask(event.value); break;
+            case ControlAction::SwellMask: setMIDISwellChannelsMask(event.value); break;
+            case ControlAction::Step: _sequencer->setStep(event.index, event.value != 0); break;
+            case ControlAction::CaptureStep: _sequencer->captureStateToStep(event.index); break;
+            case ControlAction::Backward: _sequencer->stepBackward(); break;
+            case ControlAction::Forward: _sequencer->stepForward(); break;
+        }
+    }
+    const int program = _requestedProgram.exchange(-1);
+    if (program >= 0) { if (!write) write.emplace(*this); _sequencer->setStep(program); }
+}
 AEOLUS_NAMESPACE_END

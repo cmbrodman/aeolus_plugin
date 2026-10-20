@@ -50,7 +50,7 @@ StopButton::StopButton(aeolus::Division& division, int stopIndex)
 
     this->onClick = [this]() {
         startColourAnimation();
-        _division.enableStop(_stopIndex, getToggleState());
+        _division.postControl(aeolus::ControlAction::Stop, _stopIndex, getToggleState());
     };
 }
 

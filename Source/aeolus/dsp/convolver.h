@@ -21,6 +21,9 @@
 
 #include "aeolus/globals.h"
 #include <memory>
+#if AEOLUS_TESTING
+#include "aeolus/worker.h"
+#endif
 
 AEOLUS_NAMESPACE_BEGIN
 
@@ -53,11 +56,13 @@ public:
     Convolver();
     ~Convolver();
 
+    /// Setup only, with processing stopped: joins worker jobs before replacing IR.
     void setIR(const juce::AudioBuffer<float>& ir);
 
     void setDryWet(float dry, float wet, bool force = false);
     bool isAudible() const;
 
+    /// Setup only, with processing stopped; may allocate and join worker jobs.
     void prepareToPlay(float sampleRate, size_t nFrames);
 
     void process(const float *inL, const float *inR, float *outL, float *outR, size_t numFrames);
@@ -66,6 +71,10 @@ public:
 
     int length() const noexcept;
     void setLength(int len) noexcept;
+
+#if AEOLUS_TESTING
+    Worker& testWorker();
+#endif
 
     bool zeroDelay() const noexcept;
     void setZeroDelay(bool v) noexcept;

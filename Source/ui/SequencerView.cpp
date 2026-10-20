@@ -46,12 +46,12 @@ SequencerView::SequencerView(aeolus::Sequencer* sequencer)
 
     _backwardButton.setColour(TextButton::buttonColourId, Colour(0x46, 0x60, 0x16));
     _backwardButton.onClick = [this]() {
-            _sequencer->stepBackward();
+            _sequencer->postControl(aeolus::ControlAction::Backward);
         };
 
     _forwardButton.setColour(TextButton::buttonColourId, Colour(0x46, 0x60, 0x16));
     _forwardButton.onClick = [this]() {
-            _sequencer->stepForward();
+            _sequencer->postControl(aeolus::ControlAction::Forward);
         };
 
     addAndMakeVisible(_setButton);
@@ -145,11 +145,11 @@ void SequencerView::populateStepButtons()
         button->onClick = [ptr=button.get(), index = i, this]() {
             if (_programMode) {
                 // Program current state
-                _sequencer->captureStateToStep(index);
+                _sequencer->postControl(aeolus::ControlAction::CaptureStep, index);
                 cancelProgramMode();
             } else {
                 // Select a step
-                _sequencer->setStep(index, false); // Do not capture current state
+                _sequencer->postControl(aeolus::ControlAction::Step, index, false); // Do not capture current state
                 //if (ptr->getToggleState()) {
                 //    _sequencer->setStep(index);
                 //}
