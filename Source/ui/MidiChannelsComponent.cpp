@@ -53,11 +53,10 @@ MidiChannelsComponent::MidiChannelsComponent()
         content->setSize(240, 190);
         auto* contentPtr = content.get();
         
-        content->onSelectionChanged = [this](int mask) {
-            if (onChannelsSelectionChanged)
-                onChannelsSelectionChanged(mask);
-
-            updateLabel();
+        content->onSelectionChanged = [safe = juce::Component::SafePointer<MidiChannelsComponent>(this)](int mask) {
+            if (!safe) return;
+            if (safe->onChannelsSelectionChanged) safe->onChannelsSelectionChanged(mask);
+            safe->updateLabel();
         };
 
         auto* parent = getParentComponent();

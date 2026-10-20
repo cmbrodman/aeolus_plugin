@@ -19,6 +19,8 @@
 // ----------------------------------------------------------------------------
 
 #pragma once
+#include <mutex>
+#include "aeolus/registration.h"
 
 #include "aeolus/globals.h"
 #include "aeolus/addsynth.h"
@@ -47,9 +49,28 @@ public:
         Over
     };
 
+    // A playback lease only changes an atomic counter. Storage is reclaimed by
+    // Rankwave on the setup thread, never by the last audio-thread release.
+    class Lease {
+    public:
+        Lease() = default;
+        explicit Lease(Pipewave*);
+        Lease(const Lease&);
+        Lease& operator=(const Lease&);
+        ~Lease();
+    private:
+        Pipewave* _pipe = nullptr;
+    };
+    bool hasPlaybackLeases() const noexcept { return _playbackLeases.load() != 0; }
+#if AEOLUS_TESTING
+    inline static std::atomic<unsigned> testWaveformBuildCount{0};
+    inline static std::atomic<unsigned> testLivePipeCount{0};
+#endif
+
     /// Playback state.
     struct State
     {
+        Lease lease;
         Pipewave *pipewave = nullptr;
         EnvState env = Idle;
         float* playPtr = nullptr;               // _p_p
@@ -67,11 +88,11 @@ public:
         bool isTriggered() const noexcept { return pipewave != nullptr && env == Attack; }
         bool isIdle() const noexcept { return env == Idle; }
         bool isOver() const noexcept { return env == Over; }
-        void reset() { pipewave = nullptr; env = Idle;}
+        void reset() { lease = Lease{}; pipewave = nullptr; env = Idle; }
     };
 
     Pipewave() = delete;
-    Pipewave(Addsynth& model, int note, float freq);
+    Pipewave(Addsynth& model, int note, float freq, std::shared_ptr<Addsynth> modelOwner = {});
     Pipewave(Pipewave& other);
     ~Pipewave();
 
@@ -84,6 +105,9 @@ public:
     bool doesNeedToBeRebuilt() const noexcept { return _needsToBeRebuilt.load(); }
 
     int getNote() const noexcept { return _note + _model.getNoteMin(); }
+
+    /// Number of quanta played in the Release state before the pipe is Over.
+    int getReleaseQuanta() const noexcept { return _releaseLength; }
     float getFreqency() const noexcept { return _freq; }
     float getPipeFrequency() const noexcept;
 
@@ -92,7 +116,13 @@ public:
     State trigger();
     void release(Pipewave::State& state);
 
+    /// Render one quantum, drawing pipe instability from the process-wide
+    /// shared generator (original behaviour).
     void play(State& state, float* out);
+
+    /// Render one quantum, drawing pipe instability from the supplied
+    /// generator, which must not be used concurrently by another thread.
+    void play(State& state, float* out, juce::Random& rnd);
 
 private:
     void genwave();
@@ -100,6 +130,8 @@ private:
     static void looplen(float f, float sampleRate, int lmax, int& aa, int& bb);
     static void attgain(float* att, int n, float p);
 
+    std::atomic<unsigned> _playbackLeases { 0 };
+    std::shared_ptr<Addsynth> _modelOwner; // private reload model; released only with the pipe off audio
     Addsynth& _model;
     int _note;
     float _freq;
@@ -137,11 +169,14 @@ class Rankwave
 public:
     Rankwave(Addsynth& model);
 
-    void createPipes(const Scale& scale, float tuningFreq);
+    void createPipes(const Scale& scale, float tuningFreq, std::shared_ptr<Addsynth> modelOwner = {});
+    void reserveModelReplacement(); // setup, before callback ownership
+    void adoptPrepared(Rankwave& staged); // moves a fully prepared private generation
+
 
     // Recalculate pipes tuning based on the current global scale and A4 frequency,
     // or global MTS tuning if enabed.
-    void retunePipes(const Scale& scale, float tuningFreq);
+    void retunePipes(const Scale& scale, float tuningFreq, std::shared_ptr<Addsynth> modelOwner = {});
 
     juce::String getStopName() const { return _model.getStopName(); }
     bool isForNote(int note) const noexcept { return note >= _noteMin && note <= _noteMax; }
@@ -149,11 +184,13 @@ public:
     int getNoteMax() const noexcept { return _noteMax; }
 
     void prepareToPlay(float sampleRate);
+    void collectRetired();
 
     Pipewave::State trigger(int note);
 
     void recreateFromModel(const Scale& scale, float tuningFreq)
 {
+    const std::lock_guard<std::recursive_mutex> lock(_preparationMutex);
     _noteMin = _model.getNoteMin();
     _noteMax = _model.getNoteMax();
     createPipes(scale, tuningFreq);
@@ -161,13 +198,21 @@ public:
 
 private:
     Addsynth& _model;
-    int _noteMin;
-    int _noteMax;
+    PublishedValue<int> _noteMin;
+    PublishedValue<int> _noteMax;
 
-    // Two sets of pipes to be able to switch between tunings
-    // without releasing all the voices.
-    std::array<juce::OwnedArray<Pipewave>, 2> _pipes;
-    std::atomic<int> _pipeSetIndex{ 0 };
+    std::recursive_mutex _preparationMutex; // setup/collector threads only
+    struct Generation { std::vector<std::shared_ptr<Pipewave>> pipes; int firstNote = 0; };
+    std::unique_ptr<Generation> _prepared;
+    std::unique_ptr<Generation> _ownedCurrent;
+    std::vector<std::unique_ptr<Generation>> _retired;
+    std::atomic<Generation*> _current { nullptr };
+    // Protects the interval between loading the published generation and
+    // acquiring a State lease. Sequential consistency pairs with publication
+    // and reclamation; it is not a spinlock and the callback never waits.
+    std::atomic<unsigned> _triggerReaders { 0 };
+    float _preparedSampleRate = 0;
+
 };
 
 AEOLUS_NAMESPACE_END

@@ -28,6 +28,8 @@
 #include "ui/SequencerView.h"
 #include "ui/MidiChannelsComponent.h"
 #include "ui/OverlayComponent.h"
+#include "ui/PerformanceIndicator.h"
+#include "ui/PerformanceSettingsComponent.h"
 
 class NoCreepConstrainer : public juce::ComponentBoundsConstrainer
 {
@@ -78,6 +80,7 @@ private:
 
     void updateMTS();
     void updateMeters();
+    void showPerformanceSettings(ui::PerformanceSettingsComponent::Page);
     void updateMidiKeyboardRange();
     void updateMidiKeyboardKeySwitches();
     void updateDivisionViews();
@@ -96,10 +99,10 @@ private:
     ui::SequencerView _sequencerView;
 
     juce::Label _versionLabel;
-    juce::Label _cpuLoadLabel;
-    juce::Label _cpuLoadValueLabel;
-    juce::Label _voiceCountLabel;
-    juce::Label _voiceCountValueLabel;
+    ui::PerformanceIndicator _cpuLoadMeter, _voiceMeter;
+    int _recentVoicePeak = 0;
+    double _voicePeakTime = 0, _lastRejectionTime = -2000;
+    uint64_t _lastRejectionCount = 0;
     juce::Label _reverbLabel;
     juce::ComboBox _reverbComboBox;
     ui::ParameterSlider _reverbSlider;
@@ -117,6 +120,9 @@ private:
     juce::Label _mtsDisconnectedLabel;
 
     juce::TextButton _cancelButton;
+    juce::TextButton _safetyButton {"PANIC"};
+    juce::Label _safetyStatus;
+    juce::TextButton _resumeButton {"Resume audio"};
 
     float _uiScalingPercent{};
     NoCreepConstrainer _noCreep;

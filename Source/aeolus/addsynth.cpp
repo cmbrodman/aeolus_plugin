@@ -78,7 +78,7 @@ void N_func::setValue(int idx, float v)
 
 void N_func::clearValue(int idx)
 {
-    if (isPositiveAndBelow(idx, N_NOTES))
+    if (!isPositiveAndBelow(idx, N_NOTES))
         return;
 
     int m = 1 << idx;
@@ -265,10 +265,8 @@ var HN_func::toVar(int n) const
 void HN_func::fromVar(const var& v)
 {
     if (const auto* varr = v.getArray()) {
-        if (varr->size() >= _h.size()) {
-            for (int i = 0; i < _h.size(); ++i)
-                _h[i].fromVar(varr->getUnchecked(i));
-        }
+        for (int i = 0; i < juce::jmin(varr->size(), int(_h.size())); ++i)
+            _h[(size_t)i].fromVar(varr->getUnchecked(i));
     }
 }
 
@@ -461,6 +459,16 @@ static juce::Result readString(String& string, InputStream& stream)
 
 juce::Result Addsynth::read(InputStream& stream)
 {
+    Addsynth candidate;
+    auto result = candidate.readUnchecked(stream);
+    if (result.failed()) return result;
+    result = validate(candidate.toVar());
+    if (result.wasOk()) *this = std::move(candidate);
+    return result;
+}
+
+juce::Result Addsynth::readUnchecked(InputStream& stream)
+{
     char header[header_length] = {0};
 
     auto n = stream.read(header, header_length);
@@ -471,20 +479,25 @@ juce::Result Addsynth::read(InputStream& stream)
     if (strncmp(header, "AEOLUS", 6) != 0)
         return Result::fail("Invalid header signature");
 
-    int version = header[7];
-    int nHarm = header[26];
+    int version = (unsigned char)header[7];
+    int nHarm = (unsigned char)header[26];
 
     if (nHarm == 0)
         nHarm = deprecated::N_HARM;
 
-    _noteMin = header[28];
-    _noteMax = header[29];
+    if (version < 1 || version > defaultVersion || nHarm < 1 || nHarm > N_HARM)
+        return Result::fail("Unsupported stop version or harmonic count");
+    const int64 required = 160 + (version >= defaultVersion ? 8 : 3) * (4 + 4*N_NOTES)
+        + 4 * nHarm * (4 + 4*N_NOTES);
+    if (stream.getNumBytesRemaining() < required) return Result::fail("Truncated stop payload");
+    _noteMin = (unsigned char)header[28];
+    _noteMax = (unsigned char)header[29];
 
     if (_noteMax == deprecated::NOTE_MAX)
         _noteMax = NOTE_MAX;
 
-    _fn = header[30];
-    _fd = header[31];
+    _fn = (unsigned char)header[30];
+    _fd = (unsigned char)header[31];
 
     auto res = readString<stopName_length>(_stopName, stream);
 
@@ -552,6 +565,69 @@ Result Addsynth::readFromResource(const String& name)
     return read(stream);
 }
 
+Result Addsynth::validate(const var& value)
+{
+    auto* object = value.getDynamicObject();
+    if (!object) return Result::fail("Stop must be a JSON object");
+    auto integer = [&](const char* name, int low, int high) {
+        auto v = object->getProperty(name);
+        return (v.isInt() || v.isInt64()) && int(v) >= low && int(v) <= high;
+    };
+    const int rawNoteMax = object->getProperty("note_max");
+    const int noteMax = rawNoteMax == deprecated::NOTE_MAX ? NOTE_MAX : rawNoteMax;
+    if (!integer("version", 1, 2) || !integer("n_harm", 0, N_HARM)
+        || !integer("note_min", 0, 127) || !integer("note_max", 0, 127)
+        || noteMax < int(object->getProperty("note_min"))
+        || noteMax-int(object->getProperty("note_min")) > (N_NOTES-1)*NOTES_GAP
+        || !integer("fn", 1, 255) || !integer("fd", 1, 255))
+        return Result::fail("Invalid stop version, range, name or footage ratio");
+    auto table = [](const var& v, float minimum, float maximum) {
+        auto* o = v.getDynamicObject();
+        if (!o) return false;
+        auto mask = o->getProperty("mask");
+        if (!mask.isInt() || int(mask) < 0 || int(mask) >= (1 << N_NOTES)) return false;
+        auto* values = o->getProperty("values").getArray();
+        if (!values || values->size() != N_NOTES) return false;
+        for (auto& number : *values) {
+            if (!number.isInt() && !number.isInt64() && !number.isDouble()) return false;
+            double f = number;
+            if (!std::isfinite(f) || f < minimum || f > maximum) return false;
+        }
+        return true;
+    };
+    for (const char* name : {"n_vol", "n_off", "n_ran", "n_ins", "n_att", "n_atd", "n_dct", "n_dcd"}) {
+        if (int(object->getProperty("version")) < 2 && String(name) != "n_vol" && String(name) != "n_off" && String(name) != "n_ran") continue;
+        const String key(name);
+        const bool seconds = key == "n_att" || key == "n_dct";
+        const bool nonnegative = seconds || key == "n_ran" || key == "n_ins";
+        const float minimum = nonnegative ? 0.f : key == "n_vol" ? -200.f : -1200.f;
+        const float maximum = seconds ? 30.f : key == "n_vol" ? 40.f : (key == "n_ran" || key == "n_ins") ? 100.f : 1200.f;
+        if (!table(object->getProperty(name), minimum, maximum))
+            return Result::fail(String("Invalid note table: ") + name);
+    }
+    for (const char* name : {"h_lev", "h_ran", "h_att", "h_atp"}) {
+        auto* harmonics = object->getProperty(name).getArray();
+        if (!harmonics || harmonics->size() != (int(object->getProperty("n_harm")) == 0 ? deprecated::N_HARM : int(object->getProperty("n_harm"))))
+            return Result::fail(String("Invalid harmonic table: ") + name);
+        const String key(name);
+        const float minimum = key == "h_att" || key == "h_ran" ? 0.f : key == "h_lev" ? -200.f : -100.f;
+        const float maximum = key == "h_att" ? 30.f : key == "h_atp" ? 100.f : 40.f;
+        for (const auto& harmonic : *harmonics)
+            if (!table(harmonic, minimum, maximum))
+                return Result::fail(String("Invalid harmonic values: ") + name);
+    }
+    const auto* volume=object->getProperty("n_vol").getProperty("values",{}).getArray();
+    const auto* levels=object->getProperty("h_lev").getArray();
+    const auto* variation=object->getProperty("h_ran").getArray();
+    for (int harmonic=0; harmonic<levels->size(); ++harmonic) for (int note=0; note<N_NOTES; ++note) {
+        const double combined=double((*volume)[note])
+            + double((*levels)[harmonic].getProperty("values",{})[note])
+            + double((*variation)[harmonic].getProperty("values",{})[note]);
+        if (combined > 24.0) return Result::fail("Combined harmonic gain exceeds +24 dB");
+    }
+    return Result::ok();
+}
+
 Result Addsynth::readFromFile(const File& file)
 {
     if (!file.exists())
@@ -561,14 +637,21 @@ Result Addsynth::readFromFile(const File& file)
 
     if (ext == ".ae0") {
         FileInputStream stream(file);
-        return read(stream);
+        auto result = read(stream);
+        if (result.wasOk() && _stopName.isEmpty()) _stopName = file.getFileNameWithoutExtension();
+        return result;
     }
 
     if (ext == ".json") {
         FileInputStream stream(file);
-        auto stop = JSON::parse(stream);
-        // @todo We don't handle JSON parsing errors currently
-        fromVar(stop);
+        var stop;
+        auto result = JSON::parse(stream.readEntireStreamAsString(), stop);
+        if (result.failed()) return result;
+        result = validate(stop);
+        if (result.failed()) return result;
+        Addsynth candidate; candidate.fromVar(stop);
+        if (candidate.getStopName().isEmpty()) candidate.setStopName(file.getFileNameWithoutExtension());
+        *this = std::move(candidate);
         return Result::ok();
     }
 
@@ -581,7 +664,8 @@ Model::Model()
     : _synths()
     , _nameToSynthMap()
 {
-    ensureStopFiles();
+    const auto exported = ensureStopFiles();
+    if (exported.failed()) _loadError = exported.getErrorMessage() + "\n";
     loadExternalPipes();
     loadEmbeddedPipes();
 }
@@ -622,6 +706,7 @@ void Model::loadExternalPipes()
             }
             else
             {
+                _loadError += "Cannot load " + file.getFileName() + ": " + res.getErrorMessage() + "\n";
                 DBG("Failed to read: " << res.getErrorMessage());
             }
         }
@@ -644,7 +729,7 @@ void Model::loadEmbeddedPipes()
             if (res.wasOk()) {
                 ok = true;
                 stopName = name.dropLastCharacters(4);
-            }
+            } else _loadError += "Embedded stop " + filename + ": " + res.getErrorMessage() + "\n";
         } else if (filename.endsWith("_ae0.json")) {
             String name(BinaryData::namedResourceList[i]);
 
@@ -654,6 +739,8 @@ void Model::loadEmbeddedPipes()
             if (data != nullptr) {
                 MemoryInputStream stream(data, size, false);
                 auto stop = JSON::parse(stream);
+                const auto validated=Addsynth::validate(stop);
+                if (validated.failed()) { _loadError += "Embedded stop " + filename + ": " + validated.getErrorMessage() + "\n"; continue; }
                 synth->fromVar(stop);
 
                 ok = true;
@@ -693,6 +780,17 @@ void Model::addSynth(std::unique_ptr<Addsynth>&& synthToAdd)
         // Pipe with this name already exists - it won't be added again
         DBG("Pipe " << stopName << " duplicate found");
     }
+}
+
+Addsynth* Model::addPreparedStop(const Addsynth& source)
+{
+    const auto name = source.getStopName();
+    if (auto* existing = getStopByName(name)) {
+        *existing = source;
+        return existing;
+    }
+    addSynth(std::make_unique<Addsynth>(source));
+    return getStopByName(name);
 }
 
 bool Model::reloadStopFromFile(const File& file)

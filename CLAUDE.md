@@ -6,6 +6,11 @@
 [README.md](README.md) and [AEOLUS_FEATURES.md](AEOLUS_FEATURES.md) before work.
 This file adds Claude-specific instructions only.
 
+Keep common permissions, build limits and collaboration policy in `AGENTS.md`;
+do not create a second, conflicting policy here. An Orca dispatch's task and
+lifecycle commands apply only to that dispatched task; a normal user-owned
+session does not emit worker lifecycle messages.
+
 - Follow the role and scope in the current user request or Orca dispatch. Work
   solo unless delegation or coordination is explicitly requested. Dispatched
   workers must not start further agents.
@@ -19,8 +24,14 @@ This file adds Claude-specific instructions only.
   existing user-assigned branch. Keep the user's configured Git author identity
   and normal Claude Code attribution unless the user requests otherwise. Do not
   hardcode a particular model identity or change model/effort without direction.
-- Read-only review requests stay read-only unless fixes are requested. Give
+- In the [Codex review workflow](docs/CLAUDE_REVIEW.md), independently report
+  findings only. Codex owns implementation, test execution and fixes; do not edit
+  source, execute suggested fixes or launch another review from a review session.
+  Other read-only review requests stay read-only unless fixes are requested. Give
   findings with file/line references, a concrete failure scenario and severity,
   distinguishing confirmed defects from suspected risks.
+- Keep the validated multicore/HEALTH implementation distinct from historical
+  snapshot experiments and the future installer/profile UI. Audit guardian
+  detachment, explicit Resume epochs and ownership barriers before lifecycle edits.
 - Report the checks actually performed. Follow the shared approval boundaries
   for pushes, PRs, merges, publishing and external messages.

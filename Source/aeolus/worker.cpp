@@ -19,12 +19,20 @@
 
 #include "aeolus/worker.h"
 #include "aeolus/ringbuffer.h"
-#include "aeolus/sema.h"
+#if JUCE_WINDOWS
+#include <windows.h>
+#elif JUCE_MAC
+#include <dispatch/dispatch.h>
+#else
+#include <semaphore.h>
+#include <cerrno>
+#endif
 
 #include <atomic>
 #include <mutex>
 #include <thread>
 #include <vector>
+#include <stdexcept>
 
 using namespace juce;
 
@@ -34,13 +42,36 @@ struct Worker::Impl
 {
     RingBuffer<Worker::Job*, DefaultCapacity> jobsQueue;
 
-    Semaphore sema;
+    struct Wakeup {
+#if JUCE_WINDOWS
+        HANDLE handle = CreateSemaphore(nullptr, 0, LONG_MAX, nullptr);
+        Wakeup() { if (!handle) throw std::runtime_error("Cannot create worker semaphore"); }
+        ~Wakeup() { CloseHandle(handle); }
+        void notify() { ReleaseSemaphore(handle, 1, nullptr); }
+        void wait() { WaitForSingleObject(handle, INFINITE); }
+        bool tryWait() { return WaitForSingleObject(handle, 0) == WAIT_OBJECT_0; }
+#elif JUCE_MAC
+        dispatch_semaphore_t handle = dispatch_semaphore_create(0);
+        Wakeup() { if (!handle) throw std::runtime_error("Cannot create worker semaphore"); }
+        ~Wakeup() { dispatch_release(handle); }
+        void notify() { dispatch_semaphore_signal(handle); }
+        void wait() { dispatch_semaphore_wait(handle, DISPATCH_TIME_FOREVER); }
+        bool tryWait() { return dispatch_semaphore_wait(handle, DISPATCH_TIME_NOW) == 0; }
+#else
+        sem_t handle;
+        Wakeup() { const int result = sem_init(&handle, 0, 0); if (result != 0) throw std::runtime_error("Cannot create worker semaphore"); }
+        ~Wakeup() { sem_destroy(&handle); }
+        void notify() { sem_post(&handle); }
+        void wait() { while (sem_wait(&handle) != 0 && errno == EINTR) {} }
+        bool tryWait() { return sem_trywait(&handle) == 0; }
+#endif
+    } sema;
     std::atomic_bool running;
     std::unique_ptr<std::thread> thread;
 
     Impl()
         : jobsQueue()
-        , sema(0)
+        , sema()
         , running(false)
         , thread(nullptr)
     {
@@ -69,14 +100,16 @@ struct Worker::Impl
     {
         jassert(job != nullptr);
 
+        if (!running.load()) return false;
         const auto ok = jobsQueue.send (job);
-        wakeUp();
+        if (ok) wakeUp();
 
         return ok;
     }
 
     void start()
     {
+        if (thread != nullptr) return;
         purge();
 
         if (thread == nullptr) {
@@ -93,7 +126,12 @@ struct Worker::Impl
 
             if (thread->joinable())
                 thread->join();
+            thread.reset();
         }
+        // No consumer remains. Queued raw job pointers must not survive setup
+        // resetting or destroying their owners, or a subsequent worker restart.
+        purge();
+        while (sema.tryWait()) {}
     }
 
     bool hasPendingJobs() noexcept
@@ -111,7 +149,7 @@ struct Worker::Impl
         Worker::Job* job;
 
         while (jobsQueue.receive (job)) {
-            // Do nothing.
+            if (job) job->cancelled();
         }
     }
 
@@ -162,6 +200,8 @@ bool Worker::isRunning() const noexcept
 
 void Worker::purge()
 {
+    jassert(!d->isRunning());
+    if (d->isRunning()) return;
     d->purge();
 }
 

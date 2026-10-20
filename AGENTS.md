@@ -30,13 +30,19 @@ format is validated without actually checking it.
   pooled voices and division mixing.
 - `Source/aeolus/addsynth.*`, `rankwave.*`: additive models and pipe wavetables.
 - `Source/aeolus/dsp/`: chiff, spatialization, filters, convolution and other DSP.
+- `Source/aeolus/dspteam.*`, `rtconfig.*`: opt-in Linux stereo batch rendering
+  and explicit scheduling configuration; non-Linux rendering remains serial.
+- `Source/aeolus/paniccontrol.*` and `tools/aeolus_safety.py`: Linux independent
+  HEALTH/Panic control and scoped process recovery. Preserve the receiver/Engine
+  teardown order and guardian detachment during same-process processor replacement.
 - `Source/aeolus/simd.*`, `worker.*`, `ringbuffer.h`: arithmetic dispatch,
   background work and bounded single-producer/single-consumer queues.
 - `Resources/`: embedded organ configuration, stop models, IRs, fonts and icons.
 - `Model/`: offline Python modelling experiments, not the application runtime.
 
 The engine synthesizes at 44.1 kHz in 64-sample subframes and converts to the
-external sample rate. The default voice pool has 512 entries. Stereo processing
+external sample rate. The default voice pool has 512 entries; an explicit
+environment setting can resize it. Stereo processing
 includes spatialization and convolution; `WITH_MULTIBUS_OUTPUT` instead builds
 fixed eight-mono-bus output without those stereo effects. This is not the planned
 runtime routing to four configurable stereo pairs.
@@ -128,16 +134,71 @@ each change:
 - Performance: uncapped p50/p99/worst callback times, deadline misses, xruns,
   sustainable voice counts, sample rate/buffer size and target hardware. The
   existing smoothed/capped CPU meter is insufficient evidence.
-- UI/state: exercise the actual editor workflow, cancellation, closing pending
+- UI/state: on an authenticated Linux desktop, `AEOLUS_TEST_POPUP_WORKFLOW=1`
+  additionally exercises closing the editor with its settings menu pending. Bare
+  Xvfb lacks the window-manager atoms required by JUCE popups. Exercise the actual
+  editor workflow, cancellation, closing pending
   menus, save/restart round trips and preservation of custom organs. Use Xvfb
   where appropriate; actual touch and audio hardware need their own checks.
 - Documentation: verify local links, consistency with code/history and
   `git diff --check`. Do not rebuild audio for prose-only changes.
 
+Linux production standalone builds ship adjacent Python safety helpers; keep them
+with the executable. Independent supervision requires Python 3.9+ with pidfds and
+Linux 5.3+; test-enabled builds opt in explicitly and must use isolated preferences.
+Do not distribute a test-enabled executable as the normal application.
+
 Report checks actually run and their limits. Do not present historical CI results,
 static inspection or failed test launches as current functional validation.
 
+## Automatic Claude review workflow
+
+Codex owns implementation, test execution and fixes. Claude independently reviews
+supplied snapshots and reports findings without editing source or running fixes.
+Codex verifies those findings and retains responsibility for the delivered result.
+
+Codex must automatically run the [Claude review workflow](docs/CLAUDE_REVIEW.md)
+after substantial code changes and relevant local checks, before final delivery,
+unless the user explicitly opts out. Changes to real-time audio processing, voice
+allocation/lifetimes, threading, synchronization or performance require review even
+when the diff is small. Other substantial logic, state, build or tooling changes
+also require review. Reviews are optional for trivial prose, formatting, comments
+or similarly low-impact edits. This is a Codex task-completion instruction, not a
+watcher, Git hook or runtime change; do not recursively launch reviews from a
+Claude review-only session.
+
+Use `python3 tools/claude_review.py review --objective '...' [--context FILE] FILE...`
+to prepare, execute and retrieve a review directly. Select explicit task-owned
+files, a Git baseline, surrounding context and objectives; do not include unrelated
+dirty files. The tool includes all edits and full context within selected files;
+when a file mixes task and pre-existing edits, state that limitation and bound the
+objectives without altering user work. The existing `prepare`, `run` and `show`
+commands remain available for separate steps and retries. Direct execution is
+authorized within the current task when the normal CLI/network access works; no
+extra confirmation is needed.
+If access fails, report the actual failure and offer the generated host command.
+Do not bypass the restricted-network guard or change authentication, networking,
+sandbox or runtime settings. Orca terminal startup remains an optional fallback
+only when its runtime and host execution policy permit it.
+
+Consume results with `python3 tools/claude_review.py show REVIEW_ID`. Require a
+completed, valid, current-snapshot result; timeout, failure, pending or stale output
+must not be reported as a successful review. Read the findings, verify concrete
+defects, address them within the authorized task and run relevant checks. Keep
+generated artifacts under the ignored `build/claude-reviews/` directory. Claude
+receives the supplied snapshot with built-in/MCP tools and ordinary customizations
+disabled; it reports findings and Codex handles authorized edits. Re-review a fresh
+snapshot after substantive fixes. Report failed/incomplete reviews as limitations;
+never substitute old results or claim success. Integration setup must not change
+application source.
+
 ## Workspace, permissions and collaboration
+
+Explicit user instructions establish the task and its authorization. Approval
+for a specific action remains valid for that action; do not request it again for
+routine steps within the approved scope. These project instructions operate within
+the host's tool permissions and sandbox; user approval does not change those
+technical restrictions.
 
 Inspect the branch, status and unrelated edits before modifying files. Search with
 `rg` and quote paths. Preserve user edits. This checkout is an Orca worktree; use
@@ -160,6 +221,15 @@ worker follows its dispatch scope, does not delegate further and reports its
 checks and remaining issues. Parallel workers need disjoint write ownership and
 separate build directories. Avoid concurrent builds in one directory and keep
 machine-wide resource use modest.
+Run at most two full builds or CTest passes concurrently across the machine,
+and reduce concurrency on memory-limited SBCs or under load.
+
+When coordination is explicitly authorized, give each worker a bounded task with
+owned and forbidden files, acceptance checks and approval boundaries. Coordinate
+changes to CMake, CI, dependencies and shared DSP/state interfaces. Workers report
+their actual checks and remaining issues; the coordinating agent reviews and
+validates the integrated result. Model or effort changes require direction from
+the user or the explicit dispatch; a repository template is not authorization.
 
 Before delivery, review the diff for scope and unintended behavior changes.
 Summarize changes, validation and material limitations concisely. Complete the

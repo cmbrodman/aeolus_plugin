@@ -78,6 +78,12 @@ void Voice::trigger(const Pipewave::State& state)
     _spatialSource.setSourcePosition(x, 5.0f);
     _spatialSource.recalculate();
     _postReleaseCounter = _spatialSource.getPostFxSamplesCount() + 2 * _delay + (int)TREMULANT_DELAY_LENGTH;
+
+    // The pipe delay is only read _delay samples behind the newest write, so
+    // clearing that prefix replaces the full clear previously done when the
+    // voice was returned to the pool (see DelayLine::resetForReadIndex).
+    if (!dsp::useFullVoiceClear())
+        _delayLine.resetForReadIndex(_delay);
 }
 
 void Voice::release()
@@ -98,13 +104,32 @@ void Voice::reset()
 
     memset(_buffer, 0, sizeof(float) * SUB_FRAME_LENGTH);
 
-    _delayLine.reset();
-    _chiff.reset();
+    // Otherwise the next trigger() clears the readable part of the pipe delay
+    // and chiff resonator and resets the chiff filter, rather than clearing
+    // 2 x 44,100 floats here for every finished voice.
+    if (dsp::useFullVoiceClear()) {
+        _delayLine.reset();
+        _chiff.reset();
+    }
     _spatialSource.reset();
+
+    endBatch();
+}
+
+void Voice::setRandomSeed(juce::int64 seed)
+{
+    _ownRandom = true;
+    _pipeRandom.setSeed(seed);
+    _chiffRandom.setSeed(seed ^ (juce::int64) 0x5851f42d4c957f2dLL);
 }
 
 void Voice::process(float* outL, float* outR)
 {
+    if (_engine.isEmergencyMuted()) {
+        juce::FloatVectorOperations::clear(outL, SUB_FRAME_LENGTH);
+        juce::FloatVectorOperations::clear(outR, SUB_FRAME_LENGTH);
+        return;
+    }
     memset(_buffer, 0, sizeof(float) * SUB_FRAME_LENGTH);
 
     const auto gain = _state.gain;
@@ -119,7 +144,11 @@ void Voice::process(float* outL, float* outR)
 
     } else {
         auto* pipe = _state.pipewave;
-        pipe->play(_state, _buffer);
+
+        if (_ownRandom)
+            pipe->play(_state, _buffer, _pipeRandom);
+        else
+            pipe->play(_state, _buffer);
 
         for (int i = 0; i < SUB_FRAME_LENGTH; ++i) {
             _delayLine.write(_buffer[i]);
@@ -127,7 +156,10 @@ void Voice::process(float* outL, float* outR)
         }
     }
 
-    _chiff.process(_buffer, SUB_FRAME_LENGTH);
+    if (_ownRandom)
+        _chiff.process(_buffer, SUB_FRAME_LENGTH, _chiffRandom);
+    else
+        _chiff.process(_buffer, SUB_FRAME_LENGTH);
 
     // Spatial modellig is only applied on stereo voice output
     if (outL != outR) {
@@ -144,7 +176,94 @@ bool Voice::isOver() const noexcept
 
 bool Voice::isActive() const noexcept
 {
-    return _state.env == Pipewave::Attack;
+    return _state.env == Pipewave::Attack && _releaseQuantum < 0;
+}
+
+int Voice::predictFinishQuantum(int numQuanta) const noexcept
+{
+    auto env = _state.env;
+    const auto* pipe = _state.pipewave;
+
+    // Attack without a scheduled release cannot end, unless the pipe has been
+    // retuned (play() then stops the voice immediately).
+    const bool rebuild = pipe != nullptr && pipe->doesNeedToBeRebuilt();
+
+    if (env == Pipewave::Attack && _releaseQuantum < 0 && !rebuild)
+        return numQuanta;
+
+    bool started = _state.playPtr != nullptr || _state.releasePtr != nullptr;
+    bool releaseStarted = _state.releasePtr != nullptr;
+    int releaseCount = _state.releaseCount;
+    size_t counter = _postReleaseCounter;
+
+    for (int q = _batchStart; q < numQuanta; ++q) {
+        // Voice::release() -> Pipewave::release()
+        if (q == _releaseQuantum && env != Pipewave::Over && pipe != nullptr)
+            env = started ? Pipewave::Release : Pipewave::Over;
+
+        // Voice::process()
+        if (env == Pipewave::Over) {
+            counter -= std::min(counter, (size_t) SUB_FRAME_LENGTH);
+
+            if (counter == 0)
+                return q;
+
+            continue;
+        }
+
+        // Pipewave::play()
+        if (rebuild) {
+            env = Pipewave::Over;
+            continue;
+        }
+
+        if (env == Pipewave::Attack) {
+            started = true;
+        } else if (env == Pipewave::Release) {
+            if (!releaseStarted) {
+                releaseStarted = true;
+                releaseCount = pipe->getReleaseQuanta();
+            }
+
+            const int i = releaseCount - 1;
+
+            if (i > 0)
+                releaseCount = i;
+            else
+                env = Pipewave::Over;
+        }
+    }
+
+    return numQuanta;
+}
+
+int Voice::renderBatch(float* outL, float* outR, int numQuanta)
+{
+    float left[SUB_FRAME_LENGTH];
+    float right[SUB_FRAME_LENGTH];
+
+    for (int q = _batchStart; q < numQuanta; ++q) {
+        if (_engine.isEmergencyMuted()) return q;
+        // Same order as the serial renderer: the division's control step
+        // releases the voice before the quantum is rendered.
+        if (q == _releaseQuantum)
+            release();
+
+        process(left, right);
+
+        float* const l = outL + q * SUB_FRAME_LENGTH;
+        float* const r = outR + q * SUB_FRAME_LENGTH;
+
+        for (int i = 0; i < SUB_FRAME_LENGTH; ++i) {
+            l[i] += left[i];
+            r[i] += right[i];
+        }
+
+        if (isOver())
+            return q + 1;
+    }
+
+    return numQuanta;
 }
 
 bool Voice::isForNote(int note) const noexcept
@@ -176,14 +295,31 @@ VoicePool::VoicePool(Engine& engine, int maxVoices)
     , _idleVoices{}
     , _voiceCount{0}
 {
-    for (auto& voice : _voices)
+    for (auto& voice : _voices) {
+        // The voices are copies of one prototype; copying does not keep
+        // reserved vector capacity, so reserve on every voice.
+        voice.reserveStorage();
         _idleVoices.append(&voice);
+    }
 }
 
 Voice* VoicePool::trigger(const Pipewave::State& state)
 {
     if (auto* voice = _idleVoices.first()) {
         _idleVoices.remove(voice);
+        voice->endBatch();
+
+        if (_perVoiceRandom) {
+            // SplitMix64 of the trigger sequence number: deterministic for a
+            // given note/registration sequence, independent of thread count.
+            juce::uint64 z = (++_triggerSerial) * 0x9e3779b97f4a7c15ULL;
+            z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
+            z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
+            voice->setRandomSeed((juce::int64) (z ^ (z >> 31)));
+        } else {
+            voice->useSharedRandom();
+        }
+
         voice->trigger(state);
         ++_voiceCount;
 

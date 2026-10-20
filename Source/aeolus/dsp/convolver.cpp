@@ -111,6 +111,7 @@ struct Convolver::Impl
 
     void init ()
     {
+        worker.stop(); // setup only: join and purge before reallocating jobs
         size_t numBlocks = length < Convolver::BlockSize ? 1 : (length - 1) / Convolver::BlockSize + 1;
         inputSize = numBlocks * Convolver::BlockSize;
 
@@ -123,6 +124,7 @@ struct Convolver::Impl
         updateRealtime (false);
 
         reset();
+        worker.start();
     }
 
     void updateRealtime(bool isNonRealtime)
@@ -166,6 +168,7 @@ struct Convolver::Impl
 
     void setIR(const AudioBuffer<float>& buffer)
     {
+        worker.stop(); // setup only: IR and job buffers must be exclusively owned
         // The zero-delay head always reads a complete BlockSize of IR data.
         // Short test/custom responses must be zero-padded rather than exposing
         // out-of-bounds pointers to the larger FFT stages.
@@ -205,6 +208,7 @@ struct Convolver::Impl
         }
 
         state = Process;
+        worker.start();
     }
 
     void prepareToPlay ()
@@ -326,6 +330,10 @@ void Convolver::setLength(int len) noexcept
 {
     d->length = len;
 }
+
+#if AEOLUS_TESTING
+Worker& Convolver::testWorker() { return d->worker; }
+#endif
 
 bool Convolver::zeroDelay() const noexcept
 {

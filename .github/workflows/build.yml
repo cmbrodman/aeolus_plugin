@@ -108,6 +108,11 @@ jobs:
       if: runner.os != 'Linux'
       run: ctest --test-dir "${{ env.dir_build }}" -C Release --output-on-failure
 
+    - name: Build production standalone without test profile overrides
+      run: |
+        cmake -S "${{ env.dir_source }}" -B "${{ env.dir_build }}" -DAEOLUS_BUILD_TESTS=OFF
+        cmake --build "${{ env.dir_build }}" --config "${{ env.type }}" --parallel 2
+
     - name: Inspect Linux executable
       if: runner.os == 'Linux'
       run: |
@@ -119,12 +124,25 @@ jobs:
       run: |
         python - <<'PYTHON'
         from pathlib import Path
-        import shutil
+        import shutil, re
+        from urllib.parse import unquote
         destination = Path("${{ matrix.path }}") / "Notices"
         destination.mkdir(parents=True, exist_ok=True)
         for name in ("LICENSE.txt", "NOTICE.md", "THIRD_PARTY_NOTICES.md"):
             shutil.copy2(name, destination / name)
         shutil.copytree("LICENSES", destination / "LICENSES", dirs_exist_ok=True)
+        juce_notices = destination / "JUCE"
+        juce_notices.mkdir(exist_ok=True)
+        shutil.copy2("JUCE/LICENSE.md", juce_notices / "LICENSE.md")
+        for link in re.findall(r'\]\(([^)]+)\)', Path("JUCE/LICENSE.md").read_text()):
+            if ":" in link:
+                continue
+            relative = Path(unquote(link))
+            original = Path("JUCE") / relative
+            if original.is_file():
+                target = juce_notices / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(original, target)
         (destination / "docs").mkdir(exist_ok=True)
         for name in ("ASSET_NOTICES.md", "asset-provenance.json", "DISTRIBUTION_CHECKLIST.md"):
             shutil.copy2(Path("docs") / name, destination / "docs" / name)

@@ -4,6 +4,8 @@ import argparse
 import hashlib
 import io
 import json
+import re
+from urllib.parse import unquote
 from pathlib import Path
 import shutil
 import subprocess
@@ -40,7 +42,10 @@ def main():
     repo = Path(__file__).resolve().parents[1]
     revision = git(repo, 'rev-parse', args.commit + '^{commit}').decode().strip()
     binary = args.artifact / 'Standalone' / 'Aeolus'
-    header = binary.read_bytes()[:20]
+    executable = binary.read_bytes()
+    if b'AEOLUS_TEST_SETTINGS_DIRECTORY' in executable or b'RESET_TEST' in executable:
+        parser.error('Refusing a test-enabled standalone; rebuild with AEOLUS_BUILD_TESTS=OFF')
+    header = executable[:20]
     if header[:6] != b'\x7fELF\x02\x01':
         parser.error('Expected a 64-bit little-endian Linux ELF executable')
     machine = int.from_bytes(header[18:20], 'little')
@@ -48,21 +53,49 @@ def main():
     if architecture is None:
         parser.error(f'Unsupported ELF architecture: {machine}')
     info = args.artifact / 'BuildInfo.json'
-    if not info.exists() or json.loads(info.read_text())['commit'] != revision:
+    build_info = json.loads(info.read_text()) if info.exists() else {}
+    if build_info.get('commit') != revision:
         parser.error('BuildInfo.json must identify the exact artifact commit')
     args.destination.mkdir(parents=True, exist_ok=False)
     destination = args.destination
     shutil.copytree(args.artifact, destination, dirs_exist_ok=True)
+    # Preserve the pinned framework's index and its referenced dependency notices
+    # at their relative paths. Full dependency sources are also archived below.
+    juce_notices = destination / 'Notices' / 'JUCE'
+    juce_notices.mkdir(parents=True, exist_ok=True)
+    juce_revision = git(repo, 'ls-tree', revision, 'JUCE').split()[2].decode()
+    index = git(repo / 'JUCE', 'show', juce_revision + ':LICENSE.md')
+    (juce_notices / 'LICENSE.md').write_bytes(index)
+    for link in re.findall(r'\]\(([^)]+)\)', index.decode()):
+        if ':' in link or link.endswith('/'):
+            continue
+        relative = Path(unquote(link))
+        target = juce_notices / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(git(repo / 'JUCE', 'show', juce_revision + ':' + relative.as_posix()))
     (destination / 'Standalone' / 'Aeolus').chmod(0o755)
     (destination / 'Start Aeolus.sh').write_text('#!/bin/sh\ncd "$(dirname "$0")" || exit 1\nexec ./Standalone/Aeolus "$@"\n')
     (destination / 'Start Aeolus.sh').chmod(0o755)
+    (destination / 'Start Aeolus multicore.sh').write_text(
+        '#!/bin/sh\ncd "$(dirname "$0")" || exit 1\n'
+        ': "${AEOLUS_DSP_WORKERS:=3}"\n: "${AEOLUS_MAX_VOICES:=1024}"\n'
+        'export AEOLUS_DSP_WORKERS AEOLUS_MAX_VOICES\n'
+        'exec ./Standalone/Aeolus "$@"\n')
+    (destination / 'Start Aeolus multicore.sh').chmod(0o755)
     (destination / 'READ-ME.txt').write_text(
-        f'Aeolus Linux {architecture}\nSource commit: {revision}\n\n'
+        f'Aeolus Linux {architecture}\nSource commit: {revision}\n'
+        f'Build environment: {build_info.get("build_os", build_info.get("runner", "see BuildInfo.json"))}\n\n'
         'Copy this entire folder to the target computer. Run Start Aeolus.sh\n'
         'from a graphical desktop, or execute ./Standalone/Aeolus in a terminal.\n'
+        'Start Aeolus multicore.sh opts into 3 workers and a 1024-entry voice pool.\n'
+        'It requests no core affinity, FIFO scheduling, IRQ or system changes.\n'
+        'This pool size is not a claim of clean 1024-voice playback.\n'
         'Use a writable Linux directory if the USB drive is mounted noexec.\n'
         'On FAT/exFAT, run chmod +x after copying to the Linux filesystem.\n'
-        'Keep Notices and corresponding-source.tar.gz with the application.\n'
+        'Keep Notices, Standalone/helpers and corresponding-source.tar.gz with the application.\n'
+        'Linux independent safety requires Python 3.9+ with pidfds and writable /dev/shm.\n'
+        'PyGObject/GTK 3 is optional for the separate Panic/Resume window.\n'
+        'The console footer reports whether the independent watchdog is active.\n'
         'Your existing organ configuration is not included or overwritten.\n'
         'Report startup errors from the terminal; use ldd Standalone/Aeolus\n'
         'to check for missing runtime libraries. See source/README.md in the\n'

@@ -26,16 +26,38 @@ using namespace juce;
 AEOLUS_NAMESPACE_BEGIN
 
 
-Pipewave::Pipewave(Addsynth& model, int note, float freq)
-    : _model(model)
+Pipewave::Lease::Lease(Pipewave* pipe) : _pipe(pipe)
+{
+    if (_pipe) _pipe->_playbackLeases.fetch_add(1);
+}
+Pipewave::Lease::Lease(const Lease& other) : Lease(other._pipe) {}
+Pipewave::Lease& Pipewave::Lease::operator=(const Lease& other)
+{
+    if (other._pipe) other._pipe->_playbackLeases.fetch_add(1);
+    if (_pipe) _pipe->_playbackLeases.fetch_sub(1);
+    _pipe = other._pipe;
+    return *this;
+}
+Pipewave::Lease::~Lease()
+{
+    if (_pipe) _pipe->_playbackLeases.fetch_sub(1);
+}
+
+Pipewave::Pipewave(Addsynth& model, int note, float freq, std::shared_ptr<Addsynth> modelOwner)
+    : _modelOwner(std::move(modelOwner))
+    , _model(model)
     , _note(note)
     , _freq(freq)
     , _needsToBeRebuilt{ true }
 {
+#if AEOLUS_TESTING
+    testLivePipeCount.fetch_add(1);
+#endif
 }
 
 Pipewave::Pipewave(Pipewave& other)
-    : _model{ other._model }
+    : _modelOwner{ other._modelOwner }
+    , _model{ other._model }
     , _note{ other._note }
     , _freq{ other._freq }
     , _sampleRate{ other._sampleRate }
@@ -52,6 +74,9 @@ Pipewave::Pipewave(Pipewave& other)
     , _loopStartPtr{}
     , _loopEndPtr{}
 {
+#if AEOLUS_TESTING
+    testLivePipeCount.fetch_add(1);
+#endif
     // Adjust pointers to the copied wavetable.
     float* wavetable{ other._wavetable.data() };
 
@@ -64,11 +89,16 @@ Pipewave::Pipewave(Pipewave& other)
     _loopEndPtr = _wavetable.data() + loopEndOffset;
 }
 
-Pipewave::~Pipewave() = default;
+Pipewave::~Pipewave()
+{
+#if AEOLUS_TESTING
+    testLivePipeCount.fetch_sub(1);
+#endif
+}
 
 float Pipewave::getPipeFrequency() const noexcept
 {
-    return _freq * _model.getFn() / _model.getFd();
+    return _freq; // construction already applies the footage ratio
 }
 
 void Pipewave::prepateToPlay(float sampleRate)
@@ -85,6 +115,7 @@ Pipewave::State Pipewave::trigger()
     Pipewave::State state = {};
 
     if (!_needsToBeRebuilt.load()) {
+        state.lease = Lease(this);
         state.pipewave = this;
         state.env = Pipewave::Attack;
     }
@@ -105,7 +136,11 @@ void Pipewave::release(Pipewave::State& state)
 void Pipewave::play(Pipewave::State& state, float* out)
 {
     static Random rnd;
+    play(state, out, rnd);
+}
 
+void Pipewave::play(Pipewave::State& state, float* out, Random& rnd)
+{
     jassert(out != nullptr);
     jassert(state.env != Pipewave::Idle);
     jassert(_attackStartPtr != nullptr);
@@ -241,10 +276,17 @@ void Pipewave::play(Pipewave::State& state, float* out)
 
 void Pipewave::genwave()
 {
+#if AEOLUS_TESTING
+    testWaveformBuildCount.fetch_add(1);
+    // Per-pipe fixture seed: independent of setup thread-pool job order and
+    // test process. Production retains its existing wavetable randomization.
+    Random rnd(_model.getStopName().hashCode64() ^ (juce::int64(getNote()) << 32) ^ 0x41454f4c5553LL);
+#else
 #if ! TARGET_OS_IPHONE
     thread_local
 #endif
     static Random rnd;
+#endif
 
     const float sampleRate_r = 1.0f / _sampleRate;
 
@@ -262,7 +304,11 @@ void Pipewave::genwave()
     _attackLength = (_attackLength + SUB_FRAME_LENGTH - 1) & ~(SUB_FRAME_LENGTH - 1);
 
     // Target frequency
-    float f1 = (_freq + _model.getNoteOffset(_note) + _model.getNoteRandomisation(_note) * (2.0f * rnd.nextFloat() + 1.0f)) * sampleRate_r;
+    const float targetHz = _freq + _model.getNoteOffset(_note)
+        + _model.getNoteRandomisation(_note) * (2.0f * rnd.nextFloat() + 1.0f);
+    // A tuning source can request subsonic/ultrasonic pitches even for a valid
+    // model. Keep the continued-fraction loop calculation in its defined range.
+    float f1 = jlimit(0.1f, _sampleRate * 0.5f - 0.1f, targetHz) * sampleRate_r;
 
     // Attack frequency (detuned)
     float f0 = f1 * math::exp2ap(_model.getNoteAttackDetune(_note) / 1200.0f);
@@ -447,95 +493,114 @@ Rankwave::Rankwave(Addsynth& model)
     : _model(model)
     , _noteMin(model.getNoteMin())
     , _noteMax(model.getNoteMax())
-    , _pipes{}
+
 {
     jassert(_noteMax - _noteMin + 1 > 0);
 }
 
-void Rankwave::createPipes(const Scale& scale, float tuningFrequency)
- {
-    for (auto& p : _pipes)
-        p.clear();
-
-    _pipeSetIndex = 0;
-
-    const auto fn = _model.getFn();
-    const auto fd = _model.getFd();
-
-    const auto& s = scale.getTable();
-    float fbase = tuningFrequency * fn / fd;
-
-    for (int i = _noteMin; i <= _noteMax; ++i) {
-        for (size_t j = 0; j < _pipes.size(); ++j) {
-            auto pipe = std::make_unique<Pipewave>(_model, i - _noteMin, scale.getFrequencyForMidoNote(i, fbase));
-            _pipes[j].add(pipe.release());
-        }
-    }
+void Rankwave::createPipes(const Scale& scale, float tuningFrequency, std::shared_ptr<Addsynth> modelOwner)
+{
+    const std::lock_guard<std::recursive_mutex> lock(_preparationMutex);
+    _prepared = std::make_unique<Generation>();
+    _prepared->firstNote = _noteMin;
+    const float fbase = tuningFrequency * _model.getFn() / _model.getFd();
+    for (int i = _noteMin; i <= _noteMax; ++i)
+        _prepared->pipes.push_back(std::shared_ptr<Pipewave>(new Pipewave(_model, i - _noteMin,
+                                         scale.getFrequencyForMidoNote(i, fbase), modelOwner)));
 }
 
-void Rankwave::retunePipes(const Scale& scale, float tuningFrequency)
+void Rankwave::reserveModelReplacement()
 {
-    auto* g = aeolus::EngineGlobal::getInstance();
+    const std::lock_guard<std::recursive_mutex> lock(_preparationMutex);
+    _retired.reserve(_retired.size() + 1);
+}
 
-    const float fnd = (float)_model.getFn() / (float)_model.getFd();
+void Rankwave::adoptPrepared(Rankwave& staged)
+{
+    const std::lock_guard<std::recursive_mutex> lock(_preparationMutex);
+    jassert(staged._ownedCurrent && !_prepared);
+    if (_ownedCurrent) _retired.push_back(std::move(_ownedCurrent));
+    _ownedCurrent = std::move(staged._ownedCurrent);
+    _noteMin = int(staged._noteMin);
+    _noteMax = int(staged._noteMax);
+    _preparedSampleRate = staged._preparedSampleRate;
+    _current.store(_ownedCurrent.get());
+    staged._current.store(nullptr);
+}
 
-    int pipeSetIndex{ _pipeSetIndex.load() };
-    int nextPipeSetIndex{ (pipeSetIndex + 1) % (int)_pipes.size() };
-
-    if (g->isMTSEnabled()) {
-        // Use MTS provided tuning
-        for (int i = _noteMin; i <= _noteMax; ++i) {
-            Pipewave* pipe = _pipes[nextPipeSetIndex][i - _noteMin];
-
-            // @note MTS tuning may return some weird frequencies, we need to clamp them
-            const float f{ jlimit(0.1f, SAMPLE_RATE * 0.5f - 0.1f, g->getMTSNoteToFrequency(i) * fnd) };
-
-            if (pipe->getPipeFrequency() != f) {
-                pipe->setFrequency(f);
-                pipe->setNeedsToBeRebuilt(true);
-            }
-        }
-
-    } else {
-        // Use local scale
-        float fbase = tuningFrequency * fnd;
-
-        for (int i = _noteMin; i <= _noteMax; ++i) {
-            Pipewave* pipe = _pipes[nextPipeSetIndex][i - _noteMin];
-            pipe->setFrequency(scale.getFrequencyForMidoNote(i, fbase));
-            pipe->setNeedsToBeRebuilt(true);
-        }
+void Rankwave::retunePipes(const Scale& scale, float tuningFrequency, std::shared_ptr<Addsynth> modelOwner)
+{
+    const std::lock_guard<std::recursive_mutex> lock(_preparationMutex);
+    _prepared = std::make_unique<Generation>();
+    _prepared->firstNote = _noteMin;
+    auto* g = EngineGlobal::getInstance();
+    const float ratio = float(_model.getFn()) / _model.getFd();
+    const float fbase = tuningFrequency * _model.getFn() / _model.getFd();
+    for (int i = _noteMin; i <= _noteMax; ++i) {
+        const float frequency = g->isMTSEnabled()
+            ? jlimit(0.1f, SAMPLE_RATE * 0.5f - 0.1f, g->getMTSNoteToFrequency(i) * ratio)
+            : scale.getFrequencyForMidoNote(i, fbase);
+        const int index = i - _noteMin;
+        auto previous = _ownedCurrent && isPositiveAndBelow(index, _ownedCurrent->pipes.size()) ? _ownedCurrent->pipes[(size_t)index] : nullptr;
+        // Preserve the existing waveform (including random detune) when this
+        // pipe's tuning has not changed. Only changed pipes need synthesis.
+        _prepared->pipes.push_back(previous && previous->getFreqency() == frequency
+            ? previous : std::make_shared<Pipewave>(_model, index, frequency, modelOwner));
     }
 }
 
 void Rankwave::prepareToPlay(float sampleRate)
 {
-    int pipeSetIndex{ _pipeSetIndex.load() };
-    int nextPipeSetIndex{ (pipeSetIndex + 1) % (int)_pipes.size() };
-
-    for (auto* pipe : _pipes[nextPipeSetIndex]) {
-        pipe->prepateToPlay(sampleRate);
+    const std::lock_guard<std::recursive_mutex> lock(_preparationMutex);
+    // Device reprepare at the same internal rate must not revert tuning or
+    // republish an obsolete bank. An actual rate change prepares private copies.
+    if (!_prepared && _ownedCurrent && sampleRate != _preparedSampleRate) {
+        _prepared = std::make_unique<Generation>();
+        _prepared->firstNote = _noteMin;
+        for (const auto& pipe : _ownedCurrent->pipes)
+            _prepared->pipes.push_back(std::make_shared<Pipewave>(*pipe));
     }
+    if (_prepared) {
+        for (auto& pipe : _prepared->pipes) {
+            if (sampleRate != _preparedSampleRate && pipe.use_count() > 1)
+                pipe = std::make_shared<Pipewave>(*pipe);
+            pipe->prepateToPlay(sampleRate);
+        }
+        if (_ownedCurrent) _retired.push_back(std::move(_ownedCurrent));
+        _ownedCurrent = std::move(_prepared);
+        _current.store(_ownedCurrent.get());
+        _preparedSampleRate = sampleRate;
+    }
+    collectRetired();
+}
 
-    _pipeSetIndex.store(nextPipeSetIndex);
+void Rankwave::collectRetired()
+{
+    const std::lock_guard<std::recursive_mutex> lock(_preparationMutex);
+    // Once publication has replaced the old pointer, a new trigger reader can
+    // only acquire the new generation. An earlier reader holds either this
+    // counter or a playback lease before reclamation can observe zero.
+    if (_triggerReaders.load() != 0) return;
+    _retired.erase(std::remove_if(_retired.begin(), _retired.end(), [](const auto& generation) {
+        bool empty = true;
+        for (auto& pipe : generation->pipes) {
+            if (pipe && (!pipe->hasPlaybackLeases() || pipe.use_count() > 1)) pipe.reset();
+            empty &= !pipe;
+        }
+        return empty;
+    }), _retired.end());
 }
 
 Pipewave::State Rankwave::trigger(int note)
 {
-    if (note < _noteMin || note > _noteMax)
-        return {};
-
-    const int index = note - _noteMin;
-
-    int pipeSetIndex{ _pipeSetIndex.load() };
-
-    if (!isPositiveAndBelow(index, _pipes[pipeSetIndex].size())) {
-        jassertfalse;
-        return {};
-    }
-
-    Pipewave* pipe = _pipes[pipeSetIndex][note - _noteMin];
-    return pipe->trigger();
+    _triggerReaders.fetch_add(1);
+    auto* generation = _current.load();
+    Pipewave::State state;
+    const int index = generation ? note - generation->firstNote : -1;
+    if (generation && isPositiveAndBelow(index, generation->pipes.size()))
+        state = generation->pipes[index]->trigger();
+    _triggerReaders.fetch_sub(1);
+    return state;
 }
 
 AEOLUS_NAMESPACE_END

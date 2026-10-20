@@ -475,6 +475,19 @@ public:
             block.convolve();
     }
 
+#if AEOLUS_TESTING
+    size_t testWorkerResults() const {
+        size_t count = 0;
+        for (const auto& block : blocks) count += block.workerResults;
+        return count;
+    }
+    bool testPendingJobs() const {
+        for (const auto& block : blocks)
+            if (block.jobState.load(std::memory_order_acquire) == Block::JobState::Pending) return true;
+        return false;
+    }
+#endif
+
 private:
     //------------------------------------------------------
 
@@ -493,10 +506,21 @@ private:
 
         bool dephase = false;
         size_t preconvolveIndex = 0;
-        std::atomic<bool> preconvolved = false;
+        bool preconvolved = false; // audio owner only
+        enum class JobState { Idle, Pending, Ready };
+        std::atomic<JobState> jobState { JobState::Idle };
+        uint64_t generation = 0;
+        uint64_t jobGeneration = 0; // audio owner only
+        float* jobInput;
+        float* jobOutput;
+#if AEOLUS_TESTING
+        size_t workerResults = 0;
+#endif
 
         Block()
         {
+            jobInput          = (float*) AlignedMemory<32>::alloc(Length4 * sizeof(float));
+            jobOutput         = (float*) AlignedMemory<32>::alloc(Length4 * sizeof(float));
             convolutionBuffer = (float*) AlignedMemory<32>::alloc(Length4 * sizeof(float));
             outputBuffer      = (float*) AlignedMemory<32>::alloc(Length * sizeof(float));
             tailBuffer        = (float*) AlignedMemory<32>::alloc(Length * sizeof(float));
@@ -508,6 +532,8 @@ private:
             , irSpectrumPtr{other.irSpectrumPtr}
             , preconvolved{false}
         {
+            jobInput          = (float*) AlignedMemory<32>::alloc(Length4 * sizeof(float));
+            jobOutput         = (float*) AlignedMemory<32>::alloc(Length4 * sizeof(float));
             convolutionBuffer = (float*) AlignedMemory<32>::alloc(Length4 * sizeof(float));
             outputBuffer      = (float*) AlignedMemory<32>::alloc(Length * sizeof(float));
             tailBuffer        = (float*) AlignedMemory<32>::alloc(Length * sizeof(float));
@@ -515,6 +541,9 @@ private:
 
         ~Block()
         {
+            // Owner must stop and purge its worker before reset/resize/destruction.
+            AlignedMemory<32>::free(jobInput);
+            AlignedMemory<32>::free(jobOutput);
             AlignedMemory<32>::free(tailBuffer);
             AlignedMemory<32>::free(outputBuffer);
             AlignedMemory<32>::free(convolutionBuffer);
@@ -529,7 +558,9 @@ private:
             irReady = false;
 
             dephase = false;
-            preconvolved =false;
+            preconvolved = false;
+            generation = jobGeneration = 0;
+            jobState.store(JobState::Idle);
         }
 
         void irFft()
@@ -545,14 +576,22 @@ private:
             if (! irReady)
                 return;
 
-            if (dephase) {
-                postconvolve();
-                return;
+            // Never wait on the worker or reuse its private buffers while it
+            // owns them. A missed/rejected job is computed locally, preserving
+            // every output sample and overlap tail at bounded extra CPU cost.
+            const auto state = jobState.load(std::memory_order_acquire);
+            if (state == JobState::Ready && jobGeneration == generation) {
+                std::swap(convolutionBuffer, jobOutput);
+#if AEOLUS_TESTING
+                ++workerResults;
+#endif
+                preconvolved = true;
             }
-
-            preconvolve();
+            if (state == JobState::Ready)
+                jobState.store(JobState::Idle, std::memory_order_release);
+            if (!preconvolved) preconvolve();
             postconvolve();
-
+            ++generation;
             dephase = true;
         }
 
@@ -597,19 +636,37 @@ private:
             tailIndex = (tailIndex + 1) % Length;
 
             if (dephase && tailIndex == preconvolveIndex) {
-                if (worker != nullptr)
-                    worker->addJob (this);
-                else
+                if (worker == nullptr) {
                     preconvolve();
+                } else {
+                    auto state = jobState.load(std::memory_order_acquire);
+                    if (state == JobState::Ready && jobGeneration != generation) {
+                        jobState.store(JobState::Idle, std::memory_order_release);
+                        state = JobState::Idle;
+                    }
+                    if (state == JobState::Idle) {
+                        ::memcpy(jobInput, inputSpectrumPtr, sizeof(float) * Length4);
+                        jobGeneration = generation;
+                        jobState.store(JobState::Pending, std::memory_order_release);
+                        if (!worker->addJob(this))
+                            jobState.store(JobState::Idle, std::memory_order_release);
+                    }
+                }
             }
 
             return y;
         }
 
+        void cancelled() override { jobState.store(JobState::Idle, std::memory_order_release); }
+
         // Job
         void run() override
         {
-            preconvolve();
+            // Queue publication transfers jobInput; Ready transfers jobOutput.
+            // IR remains immutable until setup stops and purges the worker.
+            simd::complex_mul_conj(jobOutput, jobInput, irSpectrumPtr, Length4);
+            FftImpl::fft(jobOutput);
+            jobState.store(JobState::Ready, std::memory_order_release);
         }
     };
 

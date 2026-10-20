@@ -113,6 +113,7 @@ public:
     void write(juce::OutputStream& stream) const;
     juce::Result read(juce::InputStream& stream);
 
+    static juce::Result validate(const juce::var& value);
     juce::Result readFromResource(const juce::String& name);
     juce::Result readFromFile(const juce::File& file);
 
@@ -138,6 +139,7 @@ public:
 
 private:
 
+    juce::Result readUnchecked(juce::InputStream& stream);
     constexpr static int defaultVersion = 2;
 
     constexpr static size_t header_length    = 32;
@@ -183,10 +185,13 @@ private:
 class Model : public juce::DeletedAtShutdown
 {
 public:
+    juce::String getLoadError() const { return _loadError; }
     juce::StringArray getStopNames() const;
     Addsynth* getStopByName(const juce::String& name);
 
     bool reloadStopFromFile(const juce::File& file);
+    Addsynth* addPreparedStop(const Addsynth& source); // setup-only catalog insertion
+
 
     int getStopsCount() const { return _synths.size(); }
     Addsynth* operator[](int idx) { return _synths[idx]; }
@@ -198,6 +203,7 @@ private:
     Model();
     ~Model() override  { clearSingletonInstance(); }
 
+    juce::String _loadError;
     void loadExternalPipes();
     void loadEmbeddedPipes();
     void addSynth(std::unique_ptr<Addsynth>&& synth);

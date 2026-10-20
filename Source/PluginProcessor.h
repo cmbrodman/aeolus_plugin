@@ -23,6 +23,7 @@
 
 #include "aeolus/engine.h"
 #include "aeolus/callbackprofiler.h"
+#include "aeolus/performancemeter.h"
 
 #include "Parameters.h"
 
@@ -40,7 +41,9 @@ public:
 
     Parameters& getParametersContainer() noexcept { return _parameters; }
 
-    void panic() noexcept { _panicRequest = true; }
+    void panic() noexcept { _engine.requestEmergencyPanic(); }
+    void resumeAudio();
+    void suspendForEdit(bool suspended);
 
     //==============================================================================
     // aeolus::EngineGlobal::ProcessorProxy
@@ -86,7 +89,9 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
-    float getProcessLoad() const noexcept { return _processLoad; }
+    float getProcessLoad() const noexcept { return _performance.snapshot().average; }
+    aeolus::PerformanceMeter::Snapshot getPerformance() const noexcept { return _performance.snapshot(); }
+    void resetPerformanceCounters() noexcept { _performance.requestReset(); _engine.resetAdmissionCounters(); }
     int getActiveVoiceCount() const noexcept { return (int) _engine.getVoiceCount(); }
 
     // juce::MidiKeyboardState::Listener
@@ -104,8 +109,8 @@ private:
 
     Parameters _parameters;
 
-    std::atomic<float> _processLoad;
-    std::atomic<bool> _panicRequest;
+    aeolus::PerformanceMeter _performance;
+    unsigned _stateBeforeEdit = 0;
     std::unique_ptr<aeolus::CallbackProfiler> _callbackProfiler;
 
     //==============================================================================

@@ -21,6 +21,7 @@
 
 #include "aeolus/globals.h"
 #include <atomic>
+#include "aeolus/registration.h"
 #include <vector>
 
 AEOLUS_NAMESPACE_BEGIN
@@ -36,10 +37,10 @@ public:
 
     struct DivisionState
     {
-        std::vector<bool> stops;    ///< Stops enablement mask.
-        bool tremulant;             ///< Tremulant enablement.
+        std::vector<PublishedValue<bool>> stops;    ///< Stops enablement mask.
+        PublishedValue<bool> tremulant = false;             ///< Tremulant enablement.
 
-        std::vector<bool> links;    ///< Manuals links.
+        std::vector<PublishedValue<bool>> links;    ///< Manuals links.
 
         juce::var getPersistentState() const;
         void setPersistentState(const juce::var& v);
@@ -71,6 +72,7 @@ public:
 
     void setStep(int index, bool captureCurrentState = true);
 
+    bool postControl(ControlAction action, int index = 0, int value = 0);
     void stepBackward();
     void stepForward();
 
@@ -87,7 +89,7 @@ private:
     std::vector<OrganState> _steps;
     std::atomic<int> _currentStep;
 
-    bool _dirty;
+    PublishedValue<bool> _dirty;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Sequencer)
 };

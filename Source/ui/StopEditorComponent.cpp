@@ -250,7 +250,10 @@ void StopEditorComponent::syncFootageFromPipe(int row)
     _updating = true;
     if (synth == nullptr)
     {
-        _footageBoxes[row]->setSelectedId(0, dontSendNotification);
+        int id = 0;
+        if (auto found = _variants.find(name); found != _variants.end())
+            if (auto* f = footageFromFnFd(int(found->second.getProperty("fn",0)), int(found->second.getProperty("fd",0)))) id = int(f-kFootages)+1;
+        _footageBoxes[row]->setSelectedId(id, dontSendNotification);
     }
     else if (auto* f = footageFromFnFd(synth->getFn(), synth->getFd()))
     {
@@ -273,31 +276,18 @@ void StopEditorComponent::applyFootageChange(int row)
     const auto& f = kFootages[fid - 1];
     auto* model = aeolus::Model::getInstance();
     auto* src = model->getStopByName(pipe);
-    if (src == nullptr)
-        return;
-
-    if (src->getFn() == f.fn && src->getFd() == f.fd)
-        return;
-
-    const String newName = pipe + "__" + footageSlug(f);
-    auto stopsDir = File::getSpecialLocation(File::userDocumentsDirectory)
-                        .getChildFile("Aeolus").getChildFile("Stops");
-    stopsDir.createDirectory();
-    const auto outFile = stopsDir.getChildFile(newName + ".json");
-
-    if (!outFile.existsAsFile())
-    {
-        auto v = src->toVar();
-        if (auto* obj = v.getDynamicObject())
-        {
-            obj->setProperty("fn", f.fn);
-            obj->setProperty("fd", f.fd);
-            obj->setProperty("name", newName);
-        }
-        outFile.replaceWithText(JSON::toString(v, true));
-    }
-
-    aeolus::EngineGlobal::getInstance()->reloadStopFile(outFile);
+    var value;
+    if (src) value = src->toVar();
+    else if (auto found = _variants.find(pipe); found != _variants.end()) value = found->second.clone();
+    else return;
+    auto* object = value.getDynamicObject();
+    if (!object || (int(object->getProperty("fn")) == f.fn && int(object->getProperty("fd")) == f.fd)) return;
+    const auto base = _variantBases.count(pipe) ? _variantBases[pipe] : pipe;
+    auto* original = model->getStopByName(base);
+    const bool originalFootage = original && original->getFn() == f.fn && original->getFd() == f.fd;
+    const String newName = originalFootage ? base : base + "__" + footageSlug(f);
+    object->setProperty("fn", f.fn); object->setProperty("fd", f.fd); object->setProperty("name", newName);
+    if (!originalFootage) { _variants[newName] = value; _variantBases[newName] = base; }
 
     if (!_stopNames.contains(newName))
     {
@@ -308,6 +298,77 @@ void StopEditorComponent::applyFootageChange(int row)
     _updating = true;
     populateStopCombo(*_stopBoxes[row], newName);
     _updating = false;
+}
+
+bool StopEditorComponent::commitVariants()
+{
+    const auto directory = aeolus::getOrganDataDirectory().getChildFile("Stops");
+    const auto config=JSON::parse(aeolus::getCustomOrganConfigFile().loadFileAsString());
+    const auto* divisions=config.getProperty("divisions",{}).getArray();
+    bool valid=divisions && divisions->size()>=1 && divisions->size()<=10;
+    if (divisions) for (const auto& division : *divisions) valid &= division.getDynamicObject()!=nullptr;
+    if (!valid) {
+        aeolus::reportUserError( "Stop Editor",
+            "Cannot read a supported organ_config.json; no stop variants were saved.");
+        return false;
+    }
+    storeCurrent();
+    juce::StringArray referenced;
+    for (const auto& edit : _pending) for (const auto& name : edit.second.pipes) referenced.addIfNotAlreadyThere(name);
+    for (auto it = _variants.begin(); it != _variants.end();)
+        if (!referenced.contains(it->first)) it = _variants.erase(it); else ++it;
+    if (_variants.empty()) { _okButton.setEnabled(false); return true; }
+    auto result = directory.createDirectory();
+    juce::Array<juce::File> created, sources;
+    if (result.wasOk()) for (const auto& entry : _variants) {
+        auto file = directory.getChildFile(entry.first + ".json");
+        // A variant name may already belong to a custom model in another
+        // supported folder or binary file. Reuse it instead of shadowing it.
+        bool found = false;
+        for (const auto& search : aeolus::getStopSearchDirectories()) {
+            for (const auto& candidate : RangedDirectoryIterator(search, false)) {
+                const auto source = candidate.getFile();
+                const auto extension = source.getFileExtension().toLowerCase();
+                if (source.existsAsFile() && source.getFileNameWithoutExtension() == entry.first
+                    && (extension == ".json" || extension == ".ae0")) {
+                    file = source; found = true; break;
+                }
+            }
+            if (found) break;
+        }
+        if (!file.existsAsFile()) {
+            result = aeolus::saveTextFile(file, JSON::toString(entry.second, true));
+            if (result.failed()) break;
+            created.add(file);
+        }
+        aeolus::Addsynth existing;
+        result = existing.readFromFile(file);
+        if (result.wasOk() && (existing.getFn() != int(entry.second.getProperty("fn",0))
+            || existing.getFd() != int(entry.second.getProperty("fd",0))))
+            result = Result::fail("A different footage model already exists: " + file.getFullPathName());
+        if (result.failed()) break; // preserve a user's invalid/conflicting file
+        existing.setStopName(entry.first);
+        const auto* cached = aeolus::Model::getInstance()->getStopByName(entry.first);
+        if (!cached || !aeolus::EngineGlobal::getInstance()->getStopByName(entry.first)
+            || JSON::toString(cached->toVar()) != JSON::toString(existing.toVar()))
+            sources.add(file); // unchanged reused ranks keep their existing waveform
+    }
+    if (result.failed()) {
+        for (const auto& file : created) file.deleteFile();
+        aeolus::reportUserError( "Stop Editor", result.getErrorMessage());
+        return false;
+    }
+    for (const auto& source : sources) {
+        if (!aeolus::EngineGlobal::getInstance()->reloadStopFile(source)) {
+            for (const auto& file : created) file.deleteFile();
+            aeolus::reportUserError("Stop Editor", "The model change is not ready. Release all notes and try again; no organ edit was applied.");
+            return false;
+        }
+    }
+    _createdVariants=created;
+    _variants.clear();
+    _okButton.setEnabled(false);
+    return true;
 }
 
 void StopEditorComponent::rebuildRows()

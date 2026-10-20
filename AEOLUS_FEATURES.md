@@ -5,6 +5,37 @@
 **Repository:** https://github.com/cmbrodman/aeolus_plugin  
 **Scope:** Portable USB-MIDI organ, Linux appliance, performance optimization, and configurable multichannel audio.
 
+## Current implementation baseline — reviewed 2026-10-19
+
+The requirements and research below retain their original dates. Current behavior
+is described in [README](README.md); recorded October 18 integration checks and
+hardware limits are in [ARM optimization notes](docs/ARM_OPTIMIZATION.md#integration-verification).
+The October 18 hardware results have not been rerun for the October 19 safety increment.
+
+- **Implemented:** standalone JUCE organ/editors and persistent organ state;
+  MIDI-offset and queue-overflow handling; prepared convolution transitions;
+  ARM64 NEON arithmetic/spatial kernels and bounded readable-ring clearing;
+  opt-in Linux grouped/multicore rendering; global Panic/explicit Resume and
+  independent Linux HEALTH supervision with processor-lifetime handling.
+- **October 19 safety increment:** configurable logical pipe-voice capacity,
+  whole-note admission with mixture/coupler headroom, explicit rejection counts,
+  uncapped callback timing/deadline and voice-capacity bars, and the related
+  Performance & Safety settings/diagnostics menus are implemented. Held-key
+  registration additions are admitted together or blocked until release/replay.
+  Local x86-64 validation and remaining hardware/UI limits are recorded in
+  [performance safety notes](docs/PERFORMANCE_SAFETY.md).
+- **Existing boundaries:** voice-pool allocation remains startup-only; a logical
+  cap is not an established clean-audio limit. Meter thresholds remain provisional.
+  Multicore/core controls use explicit environment settings. The fixed
+  eight-mono-bus build remains separate from runtime stereo-pair routing.
+- **Other planned increments:** saved portable hardware profiles and installer
+  controls; persistent, verified IRQ/startup integration; selectable algorithmic
+  reverb; runtime stereo-pair/frequency routing; MIDI reconnection and touch work.
+  Their priority is selected with the user; listing them does not start them all.
+- **Deferred experiment:** pipe-onset staggering still requires the measured
+  evidence and explicit approval in section 14.3. No UI/backend replacement or
+  automatic application restart is selected by this baseline update.
+
 ## 1. Project goals
 
 - Build a reliable, portable, standalone Aeolus pipe organ with a touchscreen-friendly interface.
@@ -30,6 +61,7 @@
 
 - Prefer minimal Debian/Linux installation with only required audio, MIDI, display/touch, device management, and recovery services.
 - Auto-start Aeolus after boot; aim for fast boot-to-play and no routine need for mouse/keyboard.
+- Target one-button cold startup after initial setup, with persistent, validated hardware profiles and no routine password prompts; see [section 16](#16-installer-setup-hardware-profiles-and-one-button-startup--agreed-2026-10-18).
 - Retain a lightweight graphical environment if using touchscreen for stop and preset control.
 - Disable unnecessary services only after baseline measurement and dependency checks.
 - Keep remote maintenance/recovery available during development.
@@ -147,7 +179,7 @@
 4. **Stop routing:** Introduce stop/rank-aware stereo bus routing before irreversible mixing; UI assignments and saved presets.
 5. **Reverb routing:** Preserve stereo convolution, then add flexible multichannel dry/wet buses and optional external processing.
 6. **Performance:** Implement measured multicore/NEON optimizations as needed; retest on all platforms.
-7. **Appliance polish:** Minimal Linux services, auto-start, MIDI hotplug/recovery, touchscreen usability, boot optimization.
+7. **Appliance polish:** Minimal Linux services, auto-start, MIDI hotplug/recovery, touchscreen usability, boot optimization. Include the in-app installer, persistent system profiles, limit meters and cold-start acceptance gates in [section 16](#16-installer-setup-hardware-profiles-and-one-button-startup--agreed-2026-10-18); performance-phase scheduling controls must integrate with that setup model.
 
 ## 12. Open questions / decisions deferred
 
@@ -323,3 +355,148 @@ This increment does not implement algorithmic reverb, configurable stereo pairs,
 MIDI device reconnect policy, ARM NEON, multicore voice rendering or the proposed
 touchscreen redesign. Actual-device xrun, listening and platform checks remain
 necessary; test results are reported with the change rather than inferred here.
+
+
+## 16. Installer setup, hardware profiles and one-button startup — agreed 2026-10-18
+
+**Status: installer/profile UI, admission controls, meters and persistent startup
+remain planned.** The separate renderer/Panic/watchdog integration is described in
+[README](README.md#integrated-multicore-rendering-and-emergency-recovery); it does not
+implement the setup features below. The isolated VIM4 IRQ-placement
+experiment informs this design; it is not a persistent installation. See the
+[hang investigation](docs/HANG_INVESTIGATION_2026-10-18.md) for observations and
+validation limits. This section extends phases 6 and 7 without authorizing an
+immediate implementation or changing existing sound-preservation requirements.
+
+### 16.1 In-app installation and administrator access
+
+- Provide a touchscreen-friendly first-run wizard and password-protected
+  **Installer / Advanced Setup** menu. Keep ordinary performance controls separate.
+- Complete supported setup inside Aeolus: detect hardware, choose a profile,
+  review changes, authenticate, apply, test, save and restore previous settings.
+- Use system administrator authentication (polkit is a candidate) and a small,
+  installed privileged helper for narrowly defined system operations. Keep Aeolus
+  unprivileged; do not store passwords, run the whole UI as root or grant a general
+  passwordless shell. Enforce authorization in the helper as well as the UI.
+- Install protected, validated configuration and startup services with initial
+  administrator approval. Normal startup may reapply the approved profile without
+  requesting a password; changing privileged policy requires authorization again.
+- Include authentication-agent support in the appliance installation where needed.
+  For unsupported operating systems, controllers or permissions, explain the
+  limitation in the app and provide exact manual setup/rollback instructions.
+- Label settings by when they apply: immediately, after an audio restart, after
+  an application/service restart, after login, or after a system reboot. Apply
+  changes outside callbacks, with bounded transitions and recoverable failure.
+
+### 16.2 Portable CPU, device and safety profiles
+
+- Detect available/online CPUs and their topology/capabilities on x86-64 and ARM64;
+  do not assume VIM4 core numbers, a fixed core count, or performance/efficiency
+  clusters on every SBC. Include Automatic, Custom and Restore Defaults modes.
+- Select audio-thread cores, DSP worker count/cores, UI/background cores and
+  independent safety-control resources. Permit limiting Aeolus's CPU footprint
+  so other applications can run. Distinguish affinity from exclusive reservation;
+  any system-wide isolation must be explicit and separately tested.
+- Discover the USB controller serving selected MIDI/audio devices and configure
+  its IRQ placement where supported. Verify actual effective affinity and
+  interrupt delivery, not merely a successful configuration write. Account for
+  shared controllers and existing IRQ-management services; avoid competing policy.
+- Expose measured scheduling/priority profiles as expert settings. Keep USB/MIDI,
+  OS and recovery work able to progress during audio saturation. Do not disable
+  kernel RT bandwidth protection or unrelated services as a default setup action.
+- Save audio device, sample rate/buffer, MIDI assignments/reconnection policy,
+  startup registration, reverb/output profile, voice limit and watchdog/Panic
+  settings. Preserve custom organs and saved multichannel profiles during fallback.
+- Include temperature/throttling status and a setup test covering dense sustained
+  registrations, simultaneous attacks, releases, MIDI continuity and Panic. Store
+  results with hardware/software identity; a voice cap alone is not a clean-audio
+  guarantee. Keep diagnostic logging away from real-time processing.
+- Retain independent Panic: attempt safe silence first, then terminate the exact
+  unresponsive app if acknowledgement fails. Automatic application restart remains
+  a later final-release feature requiring separate validation, bounded retries and
+  a notes-off startup; it is not enabled by this roadmap entry.
+
+### 16.3 Selectable voice capacity and performance meters
+
+**Implementation status — October 19:** The logical cap, whole-note admission,
+held-registration rejection, two bars, persistent thresholds and diagnostics
+submenus are implemented and locally regression-tested. See
+[behavior and checks](docs/PERFORMANCE_SAFETY.md). Target-board/touchscreen
+validation, measured hardware-specific thresholds, live pool resizing, protected
+installer access and portable hardware profiles remain outstanding. The original
+requirements below continue to guide those checks.
+
+- Provide a configurable maximum active **pipe-voice** count with explicit
+  rejection of new notes at capacity. Account for stops, mixtures and couplers;
+  prefer accepting/rejecting the complete incoming note rather than producing an
+  incomplete registration. Validate admission behavior for registration changes.
+- Always handle releases, note-offs and Panic. Preserve existing voices and audible
+  tails; do not steal voices, shorten tails or silently reduce timbre. Prepare pool
+  changes outside processing; lowering the cap below current use blocks new
+  admissions while existing voices finish. Show when notes are rejected.
+- Add two meter bars, visually consistent with audio level indicators: **audio
+  processing headroom/load** and **voice-capacity usage**. Green means comfortable
+  margin, orange approaching the limit, and red very near/at capacity or missing
+  audio deadlines. Choose thresholds from measured behavior; do not present
+  provisional percentages as established safety limits.
+- Show numeric values and text/icons alongside colors, recent callback peaks,
+  deadline misses/xruns where available, and a brief retained overload/rejection
+  indication. Base audio status on uncapped timing relative to the callback
+  deadline; the existing smoothed, capped CPU meter is insufficient. Voice count
+  is a separate capacity measure, not a substitute for processing cost.
+
+### 16.4 Persistence, device changes and cold startup
+
+- **Normal-use goal:** where the hardware supports it, press the power button
+  from a powered-off state, boot, apply the validated profile, start Aeolus and
+  reach a clearly indicated playable console without a terminal, routine password
+  prompt, or manual device selection. Configure an appropriate appliance graphical
+  session/startup path during installation; measure actual boot-to-play time.
+- Persist the approved profile across reboot and power cycles. Reapply volatile
+  IRQ/thread assignments through installed startup/device-management integration
+  after the relevant hardware appears and before enabling the performance profile.
+  Discover devices/controllers and current IRQs each time; never persist a raw IRQ
+  number or ALSA client number as the sole device identity.
+- Revalidate at every startup and relevant hotplug event, even if the user changed
+  nothing. Use available stable device identities (serial/vendor/product and
+  topology as appropriate), account for identical devices without unique serials,
+  and detect CPU/kernel/device-capability changes. Check desired versus effective
+  settings and handle devices that appear late with bounded waits/retries.
+- A new/replacement keyboard should not automatically invalidate an otherwise
+  working system profile. Reuse compatible mappings only when identity/capabilities
+  are unambiguous; offer focused reassignment when needed. Recheck controller/IRQ
+  placement if USB topology changed. Do not silently guess manual/pedal mappings.
+- Preserve saved profiles on missing/changed hardware. Offer a clearly indicated,
+  validated fallback or focused setup guidance when required resources are absent;
+  do not silently start the previously unsafe scheduling arrangement. Reconnection
+  must not restore held notes or create stuck notes. No system probing, privileged
+  operations or blocking device setup belongs in the audio callback.
+- Provide configuration backup, last-known-working rollback and an uninstall/reset
+  path for system changes. Test service failure, unavailable permissions, changed
+  devices and unsupported affinity without leaving partial configuration behind.
+
+### 16.5 Acceptance gates
+
+- [ ] Repeated cold boots with unchanged hardware reach playable state without
+  operator authentication, terminal commands or manual setup; verify actual
+  affinity, MIDI input, physical audio outputs and startup registration.
+- [ ] Reboot/renumber IRQs and device enumeration; reconnect, replace and add MIDI
+  devices, including identical models and changed USB ports/hubs. Preserve organs,
+  mappings and multichannel profiles; request intervention only where needed.
+- [ ] Validate core selections, worker limits and recovery resources on each tested
+  SBC/CPU layout; repeat saturation/release tests and record callback deadlines,
+  MIDI continuity, thermals and user-audible results. No blanket SBC support claim.
+- [ ] Exercise voice admission, short/repeated notes, couplers, full registration,
+  tails, capacity reduction, rejection indication and Panic at the configured cap.
+- [ ] Verify meter colors/labels/peak retention against measured deadline misses
+  and voice rejection, including short spikes hidden by smoothed averages.
+- [ ] Verify administrator authentication/cancellation, helper validation,
+  persistence, apply/restart messages, failed-apply rollback and restoration of
+  system defaults. Normal performance remains usable without administrator rights.
+
+Implementation references: [Linux IRQ affinity documentation](https://www.kernel.org/doc/html/latest/core-api/irq/irq-affinity.html),
+[systemd service startup](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html),
+[systemd execution settings](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html),
+and [polkit authentication architecture](https://www.freedesktop.org/software/polkit/docs/latest/polkit.8.html).
+Exact mechanisms and available options must be checked against the installed OS;
+these references do not establish implementation or validation on a target board.

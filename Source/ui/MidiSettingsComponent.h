@@ -6,10 +6,11 @@
 
 namespace ui {
 
-class MidiSettingsComponent : public juce::Component
+class MidiSettingsComponent : public juce::Component, private juce::Timer
 {
 public:
-    MidiSettingsComponent(aeolus::Engine& engine, juce::AudioDeviceManager* deviceManager = nullptr);
+    MidiSettingsComponent(aeolus::Engine& engine, juce::AudioDeviceManager* deviceManager = nullptr,
+                          juce::Component* lifetimeOwner = nullptr);
 
     void resized() override;
     void paint(juce::Graphics& g) override;
@@ -18,7 +19,12 @@ public:
 
 private:
     void rebuildDivisionSelectors();
+    void timerCallback() override;
 
+    bool engineAvailable() const { return !_requiresOwner || _lifetimeOwner != nullptr; }
+    const bool _requiresOwner;
+    juce::Component::SafePointer<juce::Component> _lifetimeOwner;
+    unsigned _layoutEpoch = 0;
     aeolus::Engine& _engine;
     juce::AudioDeviceManager* _deviceManager;
 

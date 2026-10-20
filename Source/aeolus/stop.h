@@ -21,6 +21,7 @@
 
 #include "aeolus/globals.h"
 #include "aeolus/rankwave.h"
+#include "aeolus/registration.h"
 
 AEOLUS_NAMESPACE_BEGIN
 
@@ -99,7 +100,7 @@ private:
     std::vector<Zone> _zones;
     float _gain{1.0f};
     float _chiffGain{0.0f};
-    bool _enabled{false};
+    PublishedValue<bool> _enabled{false};
 };
 
 AEOLUS_NAMESPACE_END

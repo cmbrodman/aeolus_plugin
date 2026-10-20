@@ -1,0 +1,2 @@
+# Archived unified patch: context lines and original source whitespace are data.
+tools/claude_panic/engine.patch whitespace=-blank-at-eol

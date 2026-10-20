@@ -26,6 +26,9 @@
 
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#if JucePlugin_Build_Standalone
+#include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
+#endif
 
 #include "ui/DivisionEditorComponent.h"
 
@@ -46,10 +49,6 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
     , _overlay{}
     , _sequencerView(p.getEngine().getSequencer())
     , _versionLabel{{}, JucePlugin_VersionString}
-    , _cpuLoadLabel{{}, "CPU Load:"}
-    , _cpuLoadValueLabel{}
-    , _voiceCountLabel{{}, "Voices:"}
-    , _voiceCountValueLabel{}
     , _reverbLabel{{}, "Reverb:"}
     , _reverbComboBox{}
     , _reverbSlider{*p.getParametersContainer().reverbWet, juce::Slider::LinearHorizontal}
@@ -78,17 +77,9 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
     _versionLabel.setFont(Font(FontOptions(Font::getDefaultMonospacedFontName(), 10, Font::plain)));
     _versionLabel.setJustificationType (Justification::right);
 
-    addAndMakeVisible(_cpuLoadLabel);
-    _cpuLoadValueLabel.setFont(Font(FontOptions(Font::getDefaultMonospacedFontName(), 12, Font::plain)));
-    _cpuLoadValueLabel.setJustificationType (Justification::right);
-    _cpuLoadValueLabel.setColour(Label::textColourId, Colours::lightyellow);
-    addAndMakeVisible(_cpuLoadValueLabel);
-
-    addAndMakeVisible(_voiceCountLabel);
-    _voiceCountValueLabel.setFont(Font(FontOptions(Font::getDefaultMonospacedFontName(), 12, Font::plain)));
-    _voiceCountValueLabel.setJustificationType (Justification::right);
-    _voiceCountValueLabel.setColour(Label::textColourId, Colours::lightyellow);
-    addAndMakeVisible(_voiceCountValueLabel);
+    _cpuLoadMeter.setName("Audio processing load");
+    _voiceMeter.setName("Pipe voice capacity");
+    addAndMakeVisible(_cpuLoadMeter); addAndMakeVisible(_voiceMeter);
 
 #if !AEOLUS_MULTIBUS_OUTPUT
 
@@ -187,10 +178,25 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
         menu.addItem(3, "Division Editor");
         menu.addItem(4, "Stop Editor");
         menu.addItem(5, "Coupler Editor");
+        PopupMenu performance, meters, diagnostics;
+        performance.addItem(6, "Voice capacity...");
+        meters.addItem(7, "Warning and critical thresholds...");
+        performance.addSubMenu("Load & voice meters", meters);
+        diagnostics.addItem(8, "Live readings & reset counters...");
+        performance.addSubMenu("Diagnostics", diagnostics);
+        menu.addSubMenu("Performance & Safety", performance);
 
+        Component::SafePointer<AeolusAudioProcessorEditor> menuOwner(this);
         menu.showMenuAsync(PopupMenu::Options().withTargetComponent(_settingsButton),
-            [this](int result)
+            [this,menuOwner](int result)
             {
+                if(menuOwner==nullptr) return;
+                if (result >= 6 && result <= 8) {
+                    showPerformanceSettings(result == 6 ? ui::PerformanceSettingsComponent::Page::VoiceCapacity
+                        : result == 7 ? ui::PerformanceSettingsComponent::Page::Meters
+                                      : ui::PerformanceSettingsComponent::Page::Diagnostics);
+                    return;
+                }
                 if (result == 1)
                 {
                     auto content = std::make_unique<ui::SettingsComponent>();
@@ -217,15 +223,20 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
                 {
                                        // Device manager is only available in standalone; pass nullptr in plugin hosts
                     juce::AudioDeviceManager* dm = nullptr;
+#if JucePlugin_Build_Standalone
+                    if (_audioProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone)
+                        if (auto* holder = juce::StandalonePluginHolder::getInstance()) dm = &holder->deviceManager;
+#endif
 
-                    auto content = std::make_unique<ui::MidiSettingsComponent>(_audioProcessor.getEngine(), dm);
+                    auto content = std::make_unique<ui::MidiSettingsComponent>(_audioProcessor.getEngine(), dm, this);
                     content->setSize(420, 420);
                     auto* contentPtr = content.get();
 
                     auto& box = CallOutBox::launchAsynchronously(std::move(content), _settingsButton.getBounds(), this);
-                    contentPtr->onClose = [&box, this] {
-                        _audioProcessor.getEngine().saveOrganState();
-                         box.dismiss();
+                    contentPtr->onClose = [safeEditor = Component::SafePointer<AeolusAudioProcessorEditor>(this),
+                                           safeBox = Component::SafePointer<CallOutBox>(&box)] {
+                        if (safeEditor) safeEditor->_audioProcessor.getEngine().saveOrganState();
+                        if (safeBox) safeBox->dismiss();
                     };
                 }
                 else if (result == 3)
@@ -241,19 +252,22 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
                         const auto names = contentPtr->getNames();
                         box.dismiss();
 
-                        juce::MessageManager::callAsync([this, count, names] {
-                            _audioProcessor.suspendProcessing(true);
+                        Component::SafePointer<AeolusAudioProcessorEditor> editor(this);
+                        juce::MessageManager::callAsync([editor, count, names] {
+                            if(editor==nullptr) return;
+                            auto* self=editor.getComponent();
+                            self->_audioProcessor.suspendForEdit(true);
 
-                            _divisionViews.clear();
-                            _divisionsComponent.removeAllChildren();
+                            self->_divisionViews.clear();
+                            self->_divisionsComponent.removeAllChildren();
 
-                            _audioProcessor.getEngine().applyDivisionLayout(count, names);
-                            _audioProcessor.getParametersContainer().rebindDivisionGains();
+                            self->_audioProcessor.getEngine().applyDivisionLayout(count, names);
+                            self->_audioProcessor.getParametersContainer().rebindDivisionGains();
 
-                            populateDivisions();
-                            resized();
+                            self->populateDivisions();
+                            self->resized();
 
-                            _audioProcessor.suspendProcessing(false);
+                            self->_audioProcessor.suspendForEdit(false);
                         });
                     };
                 }
@@ -266,6 +280,8 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
                     auto& box = CallOutBox::launchAsynchronously(std::move(content), _settingsButton.getBounds(), this);
                     contentPtr->onCancel = [&box] { box.dismiss(); };
                     contentPtr->onOk = [this, contentPtr] {
+                                            if (!contentPtr->commitVariants()) return;
+                                            auto createdVariants = contentPtr->getCreatedVariantFiles();
                                             auto editsUi = contentPtr->getAllEdits();
                                             juce::Array<aeolus::Engine::DivisionStopEdits> edits;
                                             for (auto& e : editsUi)
@@ -280,20 +296,23 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
                                             Component::SafePointer<CallOutBox> safeBox(box);
                                             Component::SafePointer<AeolusAudioProcessorEditor> safeEd(this);
 
-                                            MessageManager::callAsync([safeEd, safeBox, edits] {
+                                            MessageManager::callAsync([safeEd, safeBox, edits, createdVariants] {
                                                 if (safeBox != nullptr)
                                                     safeBox->dismiss();
-                                                if (safeEd == nullptr)
+                                                if (safeEd == nullptr) {
+                                                    for (const auto& file : createdVariants) file.deleteFile();
                                                     return;
+                                                }
                                                 auto* self = safeEd.getComponent();
-                                                self->_audioProcessor.suspendProcessing(true);
+                                                self->_audioProcessor.suspendForEdit(true);
                                                 self->_divisionViews.clear();
                                                 self->_divisionsComponent.removeAllChildren();
-                                                self->_audioProcessor.getEngine().applyDivisionStopsList(edits);
+                                                if (!self->_audioProcessor.getEngine().applyDivisionStopsList(edits))
+                                                    for (const auto& file : createdVariants) file.deleteFile();
                                                 self->_audioProcessor.getParametersContainer().rebindDivisionGains();
                                                 self->populateDivisions();
                                                 self->resized();
-                                                self->_audioProcessor.suspendProcessing(false);
+                                                self->_audioProcessor.suspendForEdit(false);
                                             });
                                         };
                 }
@@ -327,14 +346,14 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
                                                 if (safeEd == nullptr)
                                                     return;
                                                 auto* self = safeEd.getComponent();
-                                                self->_audioProcessor.suspendProcessing(true);
+                                                self->_audioProcessor.suspendForEdit(true);
                                                 self->_divisionViews.clear();
                                                 self->_divisionsComponent.removeAllChildren();
                                                 self->_audioProcessor.getEngine().applyCouplerLayouts(edits);
                                                 self->_audioProcessor.getParametersContainer().rebindDivisionGains();
                                                 self->populateDivisions();
                                                 self->resized();
-                                                self->_audioProcessor.suspendProcessing(false);
+                                                self->_audioProcessor.suspendForEdit(false);
                                             });
                                         };
                 }
@@ -367,15 +386,18 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
     _mtsDisconnectedLabel.setColour(Label::textColourId, Colour(255, 204, 204));
 
         _cancelButton.onClick = [this]() {
-        for (auto* divisionView : _divisionViews) {
-            divisionView->cancelAllStops();
-            divisionView->cancelAllLinks();
-            divisionView->cancelTremulant();
-        }
+        _audioProcessor.getEngine().postUIControl(aeolus::ControlAction::GeneralCancel);
         updateDivisionViews();
     };
 
     addAndMakeVisible(_cancelButton);
+    addAndMakeVisible(_safetyButton);
+    addAndMakeVisible(_safetyStatus);
+    _safetyButton.setColour(TextButton::buttonColourId,Colours::darkred);
+    _safetyButton.onClick=[this] { _audioProcessor.panic(); };
+    addAndMakeVisible(_resumeButton);
+    _resumeButton.setEnabled(false);
+    _resumeButton.onClick=[this] { _audioProcessor.resumeAudio(); };
 
     addAndMakeVisible(_divisionsViewport);
     _divisionsViewport.setViewedComponent(&_divisionsComponent, false /* don't delete */);
@@ -418,6 +440,7 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
                 safe->resized();
         });
 
+    refresh();
     startTimerHz(10);
 }
 
@@ -448,48 +471,44 @@ void AeolusAudioProcessorEditor::parentHierarchyChanged()
 
 void AeolusAudioProcessorEditor::resized()
 {
-    _overlay.setBounds(getLocalBounds());
+    constexpr int safetyHeight=28;
+    // Registration programming must never intercept the emergency controls.
+    _overlay.setBounds(getLocalBounds().withTrimmedBottom(safetyHeight));
 
     constexpr int margin = 5;
 
     _versionLabel.setBounds(getWidth() - 60, getHeight() - 20, 60 - margin, 20);
 
-    _cpuLoadLabel.setBounds(margin, margin, 70, 20);
-    _cpuLoadValueLabel.setBounds(_cpuLoadLabel.getRight() + margin, margin, 36, 20);
-    _voiceCountLabel.setBounds(150, margin, 56, 20);
-    _voiceCountValueLabel.setBounds(_voiceCountLabel.getRight() + margin, margin, 30, 20);
-
+    const int half = (getWidth()-3*margin)/2;
+    _cpuLoadMeter.setBounds(margin, 32, half, 31);
+    _voiceMeter.setBounds(2*margin+half, 32, half, 31);
 #if !AEOLUS_MULTIBUS_OUTPUT
-    _reverbLabel.setBounds(_voiceCountValueLabel.getRight() + 40, margin, 60, 20);
-    _reverbComboBox.setBounds(_reverbLabel.getRight() + margin, margin, 220, 20);
-    _reverbSlider.setBounds(_reverbComboBox.getRight() + margin, margin, 100, 20);
-
-    _volumeLabel.setBounds(_reverbSlider.getRight() + 40, margin, 60, 20);
-
+    _reverbLabel.setBounds(margin, margin, 52, 20);
+    _reverbComboBox.setBounds(_reverbLabel.getRight()+margin, margin, jlimit(110,220,(getWidth()-640)/4+110), 20);
+    _reverbSlider.setBounds(_reverbComboBox.getRight()+margin, margin, getWidth()<800 ? 75 : 100, 20);
+    _volumeLabel.setBounds(_reverbSlider.getRight()+12, margin, 55, 20);
 #else
-
-    _volumeLabel.setBounds(_voiceCountValueLabel.getRight() + 430, margin, 60, 20);
-
+    _volumeLabel.setBounds(margin, margin, 55, 20);
 #endif
-
-    _volumeSlider.setBounds(_volumeLabel.getRight() + margin, margin, 100, 20);
-
-    _volumeLevelL.setBounds(_volumeSlider.getX() + 5, _volumeSlider.getY() + 2, _volumeSlider.getWidth() - 10, 2);
-    _volumeLevelR.setBounds(_volumeSlider.getX() + 5, _volumeSlider.getY() + _volumeSlider.getHeight() - 4, _volumeSlider.getWidth() - 10, 2);
-
-    _tuningButton.setBounds(_volumeSlider.getRight() + 40, margin - 2, 24, 24);
-    _fxButton.setBounds(_tuningButton.getRight() + 20, margin - 2, 24, 24);
-    _settingsButton.setBounds(_fxButton.getRight() + 20, margin - 2, 24, 24);
-
-    _mtsConnectedLabel.setBounds(_settingsButton.getRight() + 40, margin, 160, 20);
+    _volumeSlider.setBounds(_volumeLabel.getRight()+margin, margin, 90, 20);
+    _volumeLevelL.setBounds(_volumeSlider.getX()+5, margin+2, _volumeSlider.getWidth()-10, 2);
+    _volumeLevelR.setBounds(_volumeSlider.getX()+5, margin+16, _volumeSlider.getWidth()-10, 2);
+    _settingsButton.setBounds(getWidth()-margin-24, margin-2, 24, 24);
+    _fxButton.setBounds(_settingsButton.getX()-36, margin-2, 24, 24);
+    _tuningButton.setBounds(_fxButton.getX()-36, margin-2, 24, 24);
+    _mtsConnectedLabel.setBounds(_volumeSlider.getRight()+15, margin,
+                               jmax(0,_tuningButton.getX()-_volumeSlider.getRight()-25),20);
     _mtsDisconnectedLabel.setBounds(_mtsConnectedLabel.getBounds());
+    _safetyButton.setBounds(margin,getHeight()-26,110,22);
+    _resumeButton.setBounds(_safetyButton.getRight()+5,getHeight()-26,110,22);
+    _safetyStatus.setBounds(_resumeButton.getRight()+5,getHeight()-26,240,22);
 
-        constexpr int T = margin * 2 + 20;
+    constexpr int T = 70;
     constexpr int sequencerHeight = 26;
     constexpr int sequencerPadding = 6;
     constexpr int keyboardHeight = 70;
     const int kbH = _midiKeyboard.isVisible() ? keyboardHeight : 0;
-    const int bottomChrome = kbH + sequencerHeight + 2 * sequencerPadding;
+    const int bottomChrome = kbH + sequencerHeight + 2 * sequencerPadding + safetyHeight;
 
     int y = 0;
 
@@ -506,7 +525,7 @@ void AeolusAudioProcessorEditor::resized()
     {
         int keyboardWidth = jmin((int)_midiKeyboard.getTotalKeyboardWidth(), getWidth());
         _midiKeyboard.setBounds((getWidth() - keyboardWidth) / 2,
-                                getHeight() - keyboardHeight,
+                                getHeight() - keyboardHeight - safetyHeight,
                                 keyboardWidth,
                                 keyboardHeight);
         _sequencerView.setBounds(_sequencerView.getX(),
@@ -520,7 +539,7 @@ void AeolusAudioProcessorEditor::resized()
 
     const int sequencerY = (kbH > 0)
         ? _midiKeyboard.getY() - sequencerHeight - sequencerPadding
-        : getHeight() - sequencerHeight - sequencerPadding;
+        : getHeight() - sequencerHeight - sequencerPadding - safetyHeight;
 
     _sequencerView.setBounds(sequencerX, sequencerY, sequencerWidth, sequencerHeight);
 
@@ -538,6 +557,12 @@ void AeolusAudioProcessorEditor::resized()
 
 void AeolusAudioProcessorEditor::timerCallback()
 {
+    const auto& safety=_audioProcessor.getEngine();
+    const bool supervised=safety.hasSafetyWatchdog();
+    _safetyStatus.setText(safety.isEmergencyPanicPending()?"Silencing...":supervised?"Independent watchdog active":safety.safetyWatchdogStarting()?"Watchdog waiting for audio":"Local Panic / Resume",dontSendNotification);
+    _safetyStatus.setColour(Label::textColourId,supervised?Colours::lightgreen:Colours::orange);
+    _resumeButton.setEnabled(safety.isEmergencyMuted() && !safety.isEmergencyPanicPending());
+    _safetyButton.setTooltip(safety.hasSafetyWatchdog()?"Independent watchdog active. Panic silences all notes; Resume restarts audio.":"Independent watchdog unavailable. Panic requests audio silence; Resume restarts audio.");
     refresh();
 }
 
@@ -601,11 +626,43 @@ void AeolusAudioProcessorEditor::updateMTS()
 
 void AeolusAudioProcessorEditor::updateMeters()
 {
-    auto strLoad = String (int (_audioProcessor.getProcessLoad() * 100.0f)) + "%";
-    auto strVoices = String (_audioProcessor.getActiveVoiceCount());
+    const auto m = _audioProcessor.getPerformance();
+    auto& e = _audioProcessor.getEngine(); auto* g = aeolus::EngineGlobal::getInstance();
+    const int warning = g->getMeterWarningPercent(), critical = g->getMeterCriticalPercent();
+    const auto status = [warning,critical](float value) {
+        return value*100 >= critical ? String("LIMIT") : value*100 >= warning ? String("NEAR") : String("OK");
+    };
+    _cpuLoadMeter.update(m.average, m.peak, warning, critical, m.recentOverload,
+        "Audio " + String(m.average*100,0) + "% / peak " + String(m.peak*100,0)
+            + "% " + (m.recentOverload ? String("OVER") : status(m.average))
+            + "  !" + String((int64)m.deadlineMisses),
+        "Uncapped elapsed callback time / buffer deadline. Misses: " + String((int64)m.deadlineMisses)
+            + ". Native xruns: " + (m.xruns < 0 ? String("unavailable") : String(m.xruns))
+            + ". Provisional thresholds; white marker is the recent peak.");
+    const int voices = e.getVoiceCount(), cap = e.getVoiceLimit();
+    const double now = Time::getMillisecondCounterHiRes();
+    if (voices >= _recentVoicePeak || now-_voicePeakTime >= 2000) { _recentVoicePeak = voices; _voicePeakTime = now; }
+    const auto rejected = e.getRejectedNoteCount()+e.getRejectedRegistrationCount();
+    if (rejected > _lastRejectionCount) _lastRejectionTime = now;
+    _lastRejectionCount = rejected;
+    const bool recentRejection = now-_lastRejectionTime < 2000;
+    _voiceMeter.update(float(voices)/cap, float(_recentVoicePeak)/cap, warning, critical, recentRejection,
+        "Voices " + String(voices) + "/" + String(cap) + " "
+            + (recentRejection ? String("BLOCKED") : status(float(voices)/cap))
+            + "  blocked " + String((int64)rejected),
+        "Active pipe voices include release tails. Recent peak: " + String(_recentVoicePeak)
+            + ". Rejected notes: " + String((int64)e.getRejectedNoteCount()) + "; registration additions: "
+            + String((int64)e.getRejectedRegistrationCount()) + ". Startup pool: " + String(e.getVoicePool().getMaxVoices())
+            + ". Voice usage and audio load are separate limits.");
+}
 
-    _cpuLoadValueLabel.setText (strLoad, dontSendNotification);
-    _voiceCountValueLabel.setText (strVoices, dontSendNotification);
+void AeolusAudioProcessorEditor::showPerformanceSettings(ui::PerformanceSettingsComponent::Page page)
+{
+    auto content = std::make_unique<ui::PerformanceSettingsComponent>(_audioProcessor, page, this);
+    auto* panel = content.get();
+    auto& box = CallOutBox::launchAsynchronously(std::move(content), _settingsButton.getBounds(), this);
+    const Component::SafePointer<CallOutBox> safeBox(&box);
+    panel->onClose = [safeBox] { if (safeBox) safeBox->dismiss(); };
 }
 
 void AeolusAudioProcessorEditor::updateMidiKeyboardRange()

@@ -41,6 +41,7 @@ public:
     {
     public:
         virtual void run() = 0;
+        virtual void cancelled() {} // setup owner after worker joins, before discarding queued jobs
         virtual ~Job() = default;
     };
 
@@ -66,7 +67,7 @@ public:
     bool hasPendingJobs() noexcept;
     bool isRunning() const noexcept;
 
-    void purge();
+    void purge(); // setup only, worker and producer must be stopped
 
 private:
     struct Impl;

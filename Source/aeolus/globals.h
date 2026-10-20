@@ -149,10 +149,16 @@ juce::File getCustomOrganConfigFile();
 juce::File getOrganStateFile();
 
 /// Ensure organ_config.json and organ_state.json exist in the active data directory.
-void ensureOrganDataFiles();
+juce::Result ensureOrganDataFiles();
+
+/// Checked temporary write; preserves the existing target on a failed write/flush.
+juce::Result saveTextFile(const juce::File& file, const juce::String& text);
+
+/// Message/setup thread only. Test builds log errors without creating modal windows.
+void reportUserError(const juce::String& title, const juce::String& message);
 
 juce::Array<juce::File> getStopSearchDirectories();
-void ensureStopFiles();
+juce::Result ensureStopFiles();
 //==============================================================================
 
 namespace math {

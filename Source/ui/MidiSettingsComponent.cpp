@@ -4,8 +4,11 @@ using namespace juce;
 
 namespace ui {
 
-MidiSettingsComponent::MidiSettingsComponent(aeolus::Engine& engine, AudioDeviceManager* deviceManager)
-    : _engine(engine)
+MidiSettingsComponent::MidiSettingsComponent(aeolus::Engine& engine, AudioDeviceManager* deviceManager,
+                                             Component* lifetimeOwner)
+    : _requiresOwner(lifetimeOwner != nullptr)
+    , _lifetimeOwner(lifetimeOwner)
+    , _engine(engine)
     , _deviceManager(deviceManager)
     , _titleLabel({}, "MIDI Settings")
     , _inputsLabel({}, "Active MIDI inputs")
@@ -38,7 +41,7 @@ MidiSettingsComponent::MidiSettingsComponent(aeolus::Engine& engine, AudioDevice
             toggle->setToggleState(_deviceManager->isMidiInputDeviceEnabled(device.identifier), dontSendNotification);
             toggle->onClick = [this, id = device.identifier, toggle]()
             {
-                if (_deviceManager != nullptr)
+                if (engineAvailable() && _deviceManager != nullptr)
                     _deviceManager->setMidiInputDeviceEnabled(id, toggle->getToggleState());
             };
             addAndMakeVisible(toggle);
@@ -50,18 +53,18 @@ MidiSettingsComponent::MidiSettingsComponent(aeolus::Engine& engine, AudioDevice
 
     // Global Control / Swell
     _controlChannels.currentChannelsMaskProvider = [this]() -> int {
-        return _engine.getMIDIControlChannelsMask();
+        return engineAvailable() ? _engine.getMIDIControlChannelsMask() : 0;
     };
     _controlChannels.onChannelsSelectionChanged = [this](int mask) {
-        _engine.setMIDIControlChannelsMask(mask);
+        if (engineAvailable()) _engine.postUIControl(aeolus::ControlAction::ControlMask, -1, 0, mask);
     };
     _controlChannels.updateLabel();
 
     _swellChannels.currentChannelsMaskProvider = [this]() -> int {
-        return _engine.getMIDISwellChannelsMask();
+        return engineAvailable() ? _engine.getMIDISwellChannelsMask() : 0;
     };
     _swellChannels.onChannelsSelectionChanged = [this](int mask) {
-        _engine.setMIDISwellChannelsMask(mask);
+        if (engineAvailable()) _engine.postUIControl(aeolus::ControlAction::SwellMask, -1, 0, mask);
     };
     _swellChannels.updateLabel();
 
@@ -69,10 +72,24 @@ MidiSettingsComponent::MidiSettingsComponent(aeolus::Engine& engine, AudioDevice
         if (onClose) onClose();
     };
     _closeButton.setColour(TextButton::buttonColourId, Colour(0x66, 0x66, 0x33));
+    startTimerHz(10); // display the audio-owner acknowledgement, not the pre-queue value
+}
+
+void MidiSettingsComponent::timerCallback()
+{
+    if (!engineAvailable()) { stopTimer(); return; }
+    if (_layoutEpoch != _engine.getLayoutEpoch()) {
+        rebuildDivisionSelectors();
+        resized();
+    }
+    _controlChannels.updateLabel();
+    _swellChannels.updateLabel();
+    for (auto* selector : _divisionSelectors) selector->updateLabel();
 }
 
 void MidiSettingsComponent::rebuildDivisionSelectors()
 {
+    _layoutEpoch = _engine.getLayoutEpoch();
     _divisionLabels.clear();
     _divisionSelectors.clear();
 
@@ -86,11 +103,14 @@ void MidiSettingsComponent::rebuildDivisionSelectors()
         addAndMakeVisible(label);
 
         auto* selector = _divisionSelectors.add(new MidiChannelsComponent());
-        selector->currentChannelsMaskProvider = [div]() -> int {
-            return div->getMIDIChannelsMask();
+        selector->currentChannelsMaskProvider = [this, i, epoch = _layoutEpoch]() -> int {
+            if (!engineAvailable() || epoch != _engine.getLayoutEpoch()) return 0;
+            auto* current = _engine.getDivisionByIndex(i);
+            return current ? current->getMIDIChannelsMask() : 0;
         };
-        selector->onChannelsSelectionChanged = [div](int mask) {
-            div->setMIDIChannelsMask(mask);
+        selector->onChannelsSelectionChanged = [this, i, epoch = _layoutEpoch](int mask) {
+            if (engineAvailable() && epoch == _engine.getLayoutEpoch())
+                _engine.postUIControl(aeolus::ControlAction::DivisionMask, i, 0, mask);
         };
         selector->updateLabel();
         addAndMakeVisible(selector);
