@@ -40,10 +40,85 @@ std::vector<float> editTailRender(float rate, bool edit)
     return output;
 }
 
+std::vector<float> retiredLayoutRender(float rate, int workers)
+{
+    resetMemoryFixture();
+    std::map<std::string, std::string> settings{{"AEOLUS_MAX_VOICES", "128"},
+        {"AEOLUS_PER_VOICE_RANDOM", "1"}};
+    if (workers >= 0) settings["AEOLUS_DSP_WORKERS"] = std::to_string(workers);
+    ScopedEnvironment environment(settings);
+    VoiceLimitFixture f(rate);
+    auto trigger = [&] {
+        for (int d = 0; d < f.engine.getDivisionCount(); ++d) {
+            auto* division = f.engine.getDivisionByIndex(d);
+            division->setMIDIChannelsMask(1);
+            if (division->getStopsCount()) division->enableStop(0, true);
+        }
+        f.engine.noteOn(60, 1);
+    };
+    trigger();
+    for (int i = 0; i < 12; ++i) f.block(); // first generation has audible tails
+    for (int generation = 0; generation < 18; ++generation) {
+        if (generation != 0) trigger();
+        // Do not render between edits: more than 64 retired, nonempty divisions
+        // must coexist. Rebind parameters exactly as the editor does.
+        f.processor.suspendForEdit(true);
+        f.engine.applyDivisionLayout(10, {});
+        f.processor.getParametersContainer().rebindDivisionGains();
+        f.processor.suspendForEdit(false);
+        check(f.engine.getDivisionCount() == 10, "retired-layout fixture edit failed");
+    }
+    check(f.engine.getVoiceCount() == 72, "retired-layout fixture lost sounding owners");
+    const auto beforeDrain = f.engine.getDspTeam() ? f.engine.getDspTeam()->getStats().jobs : 0;
+    std::vector<float> output;
+    auto record = [&] {
+        f.block(); // guards all callback/worker allocation and deallocation
+        for (int ch = 0; ch < f.audio.getNumChannels(); ++ch)
+            output.insert(output.end(), f.audio.getReadPointer(ch),
+                          f.audio.getReadPointer(ch) + f.audio.getNumSamples());
+    };
+    for (int i = 0; i < 350; ++i) record();
+    check(f.engine.getVoiceCount() == 0, "retired-layout tails did not finish");
+    if (auto* team = f.engine.getDspTeam())
+        check(team->getStats().jobs > beforeDrain,
+              "grouped rendering did not recover while retired tails drained");
+    trigger(); // no further edit is allowed to clean up the render list
+    const auto beforeFresh = f.engine.getDspTeam() ? f.engine.getDspTeam()->getStats().jobs : 0;
+    for (int i = 0; i < 20; ++i) record();
+    check(f.engine.getVoiceCount() == 4, "fresh registration did not sound after retired tails");
+    if (auto* team = f.engine.getDspTeam())
+        check(team->getStats().jobs > beforeFresh,
+              "empty retired layouts left fresh notes in persistent serial fallback");
+    f.engine.allNotesOff();
+    for (int i = 0; i < 350; ++i) record();
+    check(f.engine.getVoiceCount() == 0, "fresh post-edit release stranded voices");
+    f.engine.requestEmergencyPanic(); f.block();
+    return output;
+}
+
+void retiredLayoutBatchTests()
+{
+#if JUCE_LINUX && !AEOLUS_MULTIBUS_OUTPUT
+    for (float rate : {44100.0f, 48000.0f}) {
+        const auto serial = retiredLayoutRender(rate, -1);
+        const auto grouped = retiredLayoutRender(rate, 0);
+        const auto workers = retiredLayoutRender(rate, 3);
+        check(grouped == workers, "retired-layout output depends on worker count");
+        check(serial.size() == grouped.size(), "retired-layout render lengths differ");
+        float difference = 0;
+        for (size_t i = 0; i < serial.size(); ++i)
+            difference = std::max(difference, std::abs(serial[i] - grouped[i]));
+        check(difference < 1e-5f, "batch recovery changed the serial reference or release tails");
+    }
+    resetMemoryFixture();
+#endif
+}
+
 void memoryLifetimeTests()
 {
     auto* g = aeolus::EngineGlobal::getInstance();
     g->setVoiceLimitSetting(0);
+    retiredLayoutBatchTests();
     for (int workers : {-1, 3}) {
         ScopedEnvironment env(workers < 0 ? std::map<std::string,std::string>{{"AEOLUS_PER_VOICE_RANDOM", "1"}}
             : std::map<std::string,std::string>{{"AEOLUS_DSP_WORKERS", "3"}, {"AEOLUS_PER_VOICE_RANDOM", "1"}});

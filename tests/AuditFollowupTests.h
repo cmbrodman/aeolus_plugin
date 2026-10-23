@@ -456,7 +456,7 @@ void auditConcurrentControls()
 void auditRejectedLayoutTests()
 {
     resetMemoryFixture();
-    ScopedEnvironment environment({{"AEOLUS_DSP_WORKERS","3"}});
+    ScopedEnvironment environment(std::map<std::string, std::string>{{"AEOLUS_DSP_WORKERS","3"}});
     VoiceLimitFixture f(48000);
     const int count=f.engine.getDivisionCount();
     const auto original=aeolus::getCustomOrganConfigFile().loadFileAsString();

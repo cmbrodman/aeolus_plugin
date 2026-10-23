@@ -640,7 +640,7 @@ float peakLevel(const RenderResult& r)
 
 void modelReloadSafetyTests()
 {
-    ScopedEnvironment environment({{"AEOLUS_DSP_WORKERS","3"}});
+    ScopedEnvironment environment(std::map<std::string, std::string>{{"AEOLUS_DSP_WORKERS","3"}});
     AeolusAudioProcessor processor;
     processor.prepareToPlay(44100,512);
     auto& engine=processor.getEngine();
@@ -690,6 +690,23 @@ void modelReloadSafetyTests()
 
 void safetyFooterTests()
 {
+    // Simulated sysfs only: tests must never change a real system governor.
+    juce::TemporaryFile temporary;
+    const auto root = temporary.getFile();
+    struct FixtureCleanup { juce::File path; ~FixtureCleanup() { path.deleteRecursively(); } } cleanup {root};
+    const auto active = root.getChildFile("policy0");
+    const auto inactive = root.getChildFile("policy4");
+    check(active.createDirectory().wasOk() && inactive.createDirectory().wasOk(), "cannot prepare CPU policy fixture");
+    active.getChildFile("affected_cpus").replaceWithText("0 1 2 3");
+    active.getChildFile("scaling_governor").replaceWithText("performance\n");
+    inactive.getChildFile("affected_cpus").replaceWithText("\n");
+    auto paths = ui::PerformanceModeButton::policies(root);
+    check(paths.size()==1 && ui::PerformanceModeButton::allPerformance(paths),
+          "inactive CPU policy prevents performance detection");
+    active.getChildFile("scaling_governor").replaceWithText("conservative\n");
+    check(!ui::PerformanceModeButton::allPerformance(paths), "wrong governor shown as performance");
+    active.getChildFile("scaling_governor").deleteFile();
+    check(!ui::PerformanceModeButton::allPerformance(paths), "unreadable active policy shown as performance");
     auto* global=aeolus::EngineGlobal::getInstance();
     const bool original=global->isKeyboardVisible();
     for(const bool visible:{true,false}) {
@@ -699,9 +716,11 @@ void safetyFooterTests()
         editor->setSize(640,480);
         editor->setVisible(true);
         juce::TextButton* panic=nullptr;juce::TextButton* resume=nullptr;
+        juce::TextButton* performance=nullptr;
         juce::MidiKeyboardComponent* keyboard=nullptr;ui::SequencerView* sequencer=nullptr;
         for(auto* child:editor->getChildren()) {
             if(auto* button=dynamic_cast<juce::TextButton*>(child)) {
+                if(button->getName()=="temporaryPerformanceMode") performance=button;
                 if(button->getButtonText()=="PANIC") panic=button;
                 if(button->getButtonText()=="Resume audio") resume=button;
             }
@@ -709,6 +728,8 @@ void safetyFooterTests()
             if(auto* item=dynamic_cast<ui::SequencerView*>(child)) sequencer=item;
         }
         check(panic && resume && keyboard && sequencer,"global safety controls missing");
+        check(performance && !performance->getBounds().intersects(resume->getBounds()),
+              "temporary performance control missing or overlaps Resume");
         check(!panic->getBounds().intersects(resume->getBounds()),"Panic and Resume overlap");
         check(sequencer->getBottom()<=panic->getY(),"sequencer overlaps safety footer");
         if(visible) check(keyboard->getBottom()<=panic->getY(),"keyboard overlaps Panic");
@@ -742,7 +763,7 @@ void realtimeConfigTests()
         try { aeolus::RealtimeConfig::parseCpuList(invalid); } catch(const std::invalid_argument&) { rejected=true; }
         check(rejected,"malformed CPU list silently removed affinity");
     }
-    ScopedEnvironment environment({{"AEOLUS_DSP_WORKERS","99999999999999999999999999"}});
+    ScopedEnvironment environment(std::map<std::string, std::string>{{"AEOLUS_DSP_WORKERS","99999999999999999999999999"}});
 #if JUCE_LINUX && !AEOLUS_MULTIBUS_OUTPUT
     bool rejected=false;
     try { aeolus::RealtimeConfig::fromEnvironment(); } catch(const std::invalid_argument&) { rejected=true; }

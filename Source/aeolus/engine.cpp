@@ -20,6 +20,7 @@
 #include "aeolus/setuplock.h"
 #include "aeolus/engine.h"
 #include "aeolus/paniccontrol.h"
+#include <algorithm>
 #include <thread>
 #include <chrono>
 #include <vector>
@@ -2322,6 +2323,15 @@ void Engine::renderBatch(int numQuanta)
 
     _batchQuanta = 0;
     _batchNext = 0;
+
+    // Previous jobs and output consumption have finished. Compact only this
+    // non-owning list before building the next batch's division indices; retired
+    // owners are still destroyed by suspended setup. Empty retired divisions
+    // cannot gain voices again, while empty live divisions must retain control.
+    _renderDivisions.erase(std::remove_if(_renderDivisions.begin(), _renderDivisions.end(),
+        [](Division* division) {
+            return division->_retired && division->getActiveVoices().first() == nullptr;
+        }), _renderDivisions.end());
 
     if (_renderDivisions.size() > MaxBatchDivisions) {
         // Unsupported layout: render serially into the batch buffer.
