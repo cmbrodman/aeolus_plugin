@@ -233,8 +233,9 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
                     auto* contentPtr = content.get();
 
                     auto& box = CallOutBox::launchAsynchronously(std::move(content), _settingsButton.getBounds(), this);
-                    contentPtr->onClose = [safeEditor = Component::SafePointer<AeolusAudioProcessorEditor>(this),
-                                           safeBox = Component::SafePointer<CallOutBox>(&box)] {
+                    Component::SafePointer<AeolusAudioProcessorEditor> safeEditor(this);
+                    Component::SafePointer<CallOutBox> safeBox(&box);
+                    contentPtr->onClose = [safeEditor, safeBox] {
                         if (safeEditor) safeEditor->_audioProcessor.getEngine().saveOrganState();
                         if (safeBox) safeBox->dismiss();
                     };
