@@ -98,6 +98,8 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release --parallel 2
 ```
 
+For VIM4 performance comparisons, use the [optimized native build](#arm-optimization-and-usb-copies) below. `CMAKE_BUILD_TYPE=Release` alone leaves `AEOLUS_ENABLE_IPO=OFF`; it does not reproduce the earlier LTO-enabled VIM4 measurements. Keep the sample rate, buffer, registration, reverb, renderer, scheduling and governor consistent when comparing voice capacity.
+
 The standalone executable is generated under `build/Aeolus_artefacts/Release/Standalone` (platform-specific executable or application bundle). `WITH_ASIO` and `WITH_MULTIBUS_OUTPUT` default to `OFF`. Enabling multibus changes the target/product name to `Aeolus-multibus` and its corresponding artifact directory.
 
 ### Linux downloads and ARM64 boards
@@ -297,7 +299,10 @@ continue through the normal stereo/multibus output and count against voice
 capacity until their voices return to the pool. Empty retired divisions are
 reclaimed on a later suspended edit or teardown. The grouped renderer includes
 retired divisions; unusually many simultaneous layout generations fall back to
-the serial reference when they exceed its division capacity.
+the serial reference when they exceed its division capacity. Empty retired pointers
+are pruned between batches, so grouped rendering resumes automatically as tails
+finish; owner destruction still stays in suspended setup. See the
+[stage 0 reliability checks](docs/STAGE_0_RELIABILITY_2026-10-21.md).
 
 Retuning prepares new pipe generations without rewriting active wavetables.
 Playback states retain their generation through release; retired wave storage is
@@ -347,3 +352,11 @@ until repaired and restarted. Successful structural edits save migrated state
 during setup. Malformed or incompatible nonempty saved state is preserved with a
 repair/remove warning; a zero-byte state file permits a fresh save.
 Remaining hardware/platform/listening validation is tracked in [issues.md](issues.md).
+
+### Temporary CPU performance control
+
+The footer's Linux **Performance mode** button requests administrator
+authentication to select the system performance governor; **Performance ON**
+means all detected CPU policies currently report it. This temporary action is
+system-wide and does not persist a hardware profile. See
+[requirements, failure behavior and limitations](docs/TEMPORARY_PERFORMANCE_BUTTON.md).

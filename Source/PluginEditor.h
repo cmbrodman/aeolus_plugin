@@ -30,6 +30,7 @@
 #include "ui/OverlayComponent.h"
 #include "ui/PerformanceIndicator.h"
 #include "ui/PerformanceSettingsComponent.h"
+#include "ui/PerformanceModeButton.h"
 
 class NoCreepConstrainer : public juce::ComponentBoundsConstrainer
 {
@@ -123,6 +124,7 @@ private:
     juce::TextButton _safetyButton {"PANIC"};
     juce::Label _safetyStatus;
     juce::TextButton _resumeButton {"Resume audio"};
+    ui::PerformanceModeButton _performanceModeButton;
 
     float _uiScalingPercent{};
     NoCreepConstrainer _noCreep;

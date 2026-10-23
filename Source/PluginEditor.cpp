@@ -233,8 +233,9 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
                     auto* contentPtr = content.get();
 
                     auto& box = CallOutBox::launchAsynchronously(std::move(content), _settingsButton.getBounds(), this);
-                    contentPtr->onClose = [safeEditor = Component::SafePointer<AeolusAudioProcessorEditor>(this),
-                                           safeBox = Component::SafePointer<CallOutBox>(&box)] {
+                    Component::SafePointer<AeolusAudioProcessorEditor> safeEditor(this);
+                    Component::SafePointer<CallOutBox> safeBox(&box);
+                    contentPtr->onClose = [safeEditor, safeBox] {
                         if (safeEditor) safeEditor->_audioProcessor.getEngine().saveOrganState();
                         if (safeBox) safeBox->dismiss();
                     };
@@ -392,6 +393,7 @@ AeolusAudioProcessorEditor::AeolusAudioProcessorEditor (AeolusAudioProcessor& p)
 
     addAndMakeVisible(_cancelButton);
     addAndMakeVisible(_safetyButton);
+    addAndMakeVisible(_performanceModeButton);
     addAndMakeVisible(_safetyStatus);
     _safetyButton.setColour(TextButton::buttonColourId,Colours::darkred);
     _safetyButton.onClick=[this] { _audioProcessor.panic(); };
@@ -501,7 +503,9 @@ void AeolusAudioProcessorEditor::resized()
     _mtsDisconnectedLabel.setBounds(_mtsConnectedLabel.getBounds());
     _safetyButton.setBounds(margin,getHeight()-26,110,22);
     _resumeButton.setBounds(_safetyButton.getRight()+5,getHeight()-26,110,22);
-    _safetyStatus.setBounds(_resumeButton.getRight()+5,getHeight()-26,240,22);
+    _performanceModeButton.setBounds(getWidth()-220,getHeight()-26,150,22);
+    _safetyStatus.setBounds(_resumeButton.getRight()+5,getHeight()-26,
+                           jmin(240,_performanceModeButton.getX()-_resumeButton.getRight()-10),22);
 
     constexpr int T = 70;
     constexpr int sequencerHeight = 26;

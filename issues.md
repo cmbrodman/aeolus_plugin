@@ -5,6 +5,22 @@ pre-existing worktree changes. A checked entry means the code defect was address
 and has regression coverage or the stated static verification. It does not mean
 hardware, every platform, or every possible configuration was validated.
 
+## October 20 performance investigation
+
+The [VIM4 regression audit](docs/PERFORMANCE_REGRESSION_AUDIT_2026-10-20.md)
+separates the confirmed serial/512-pool launch mismatch from added code costs,
+matched timing results and the remaining live validation. The correctness fixes
+below remain addressed; they do not establish a particular clean voice capacity.
+
+- [x] **PERF-09 — Retired layouts can leave grouped rendering in serial fallback.**
+  Fixed October 21: stably prune empty retired pointers at a quiescent batch
+  boundary, preserving sounding tails, live divisions and setup-only owner
+  destruction. A permanent 72-voice/18-edit regression checks automatic recovery,
+  reference output and callback/worker heap safety at 44.1/48 kHz, with serial,
+  zero-worker and three-worker rendering. Release, ASan/UBSan and TSan pass;
+  see [stage 0 evidence and remaining checks](docs/STAGE_0_RELIABILITY_2026-10-21.md).
+  This does not establish a fix for the fresh-launch VIM4 listening complaint.
+
 ## Addressed findings
 
 - [x] **AUD-01/02 — Sequencer and MIDI stop-index memory corruption.** Resize

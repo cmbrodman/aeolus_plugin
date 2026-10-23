@@ -1,40 +1,54 @@
 # Aeolus Standalone — Feature Roadmap and Design Notes
 
-**Status:** Working feature specification / planning document  
+**Status:** Staged implementation tracker / feature specification\
 **Started:** 2026-10-15  
 **Repository:** https://github.com/cmbrodman/aeolus_plugin  
 **Scope:** Portable USB-MIDI organ, Linux appliance, performance optimization, and configurable multichannel audio.
 
-## Current implementation baseline — reviewed 2026-10-19
+## Current implementation baseline — reviewed 2026-10-21
 
-The requirements and research below retain their original dates. Current behavior
-is described in [README](README.md); recorded October 18 integration checks and
-hardware limits are in [ARM optimization notes](docs/ARM_OPTIMIZATION.md#integration-verification).
-The October 18 hardware results have not been rerun for the October 19 safety increment.
+This is the delivery tracker and retained design specification. The status below
+was checked against application source at `e33b22c` plus the local stage 0
+fix, the current CMake targets, regression tests and the linked evidence. It records work already delivered; this
+roadmap update changes no application behavior. Requirements and research retain
+their original dates. Use [section 11](#11-implementation-phases) for staged work
+and [issues.md](issues.md) for concrete defects and outstanding audit checks.
 
 - **Implemented:** standalone JUCE organ/editors and persistent organ state;
-  MIDI-offset and queue-overflow handling; prepared convolution transitions;
-  ARM64 NEON arithmetic/spatial kernels and bounded readable-ring clearing;
-  opt-in Linux grouped/multicore rendering; global Panic/explicit Resume and
-  independent Linux HEALTH supervision with processor-lifetime handling.
-- **October 19 safety increment:** configurable logical pipe-voice capacity,
-  whole-note admission with mixture/coupler headroom, explicit rejection counts,
-  uncapped callback timing/deadline and voice-capacity bars, and the related
-  Performance & Safety settings/diagnostics menus are implemented. Held-key
-  registration additions are admitted together or blocked until release/replay.
-  Local x86-64 validation and remaining hardware/UI limits are recorded in
-  [performance safety notes](docs/PERFORMANCE_SAFETY.md).
-- **Existing boundaries:** voice-pool allocation remains startup-only; a logical
-  cap is not an established clean-audio limit. Meter thresholds remain provisional.
-  Multicore/core controls use explicit environment settings. The fixed
-  eight-mono-bus build remains separate from runtime stereo-pair routing.
-- **Other planned increments:** saved portable hardware profiles and installer
-  controls; persistent, verified IRQ/startup integration; selectable algorithmic
-  reverb; runtime stereo-pair/frequency routing; MIDI reconnection and touch work.
-  Their priority is selected with the user; listing them does not start them all.
-- **Deferred experiment:** pipe-onset staggering still requires the measured
-  evidence and explicit approval in section 14.3. No UI/backend replacement or
-  automatic application restart is selected by this baseline update.
+  MIDI sample-offset and queue-overflow handling; safe convolution transitions;
+  ARM64 NEON arithmetic/spatial kernels, bounded readable-ring clears and optional
+  Release IPO; opt-in Linux grouped/multicore rendering; global Panic/explicit
+  Resume and independent Linux HEALTH supervision.
+- **Implemented safety controls:** logical pipe-voice cap, whole-note admission
+  accounting for mixtures/couplers and tails, held-registration rejection,
+  rejection counters, uncapped processing diagnostics, load/capacity bars and
+  persistent settings. Physical pool allocation remains startup-only. See
+  [performance safety behavior](docs/PERFORMANCE_SAFETY.md).
+- **Correctness audit addressed:** sequencer/stop-index corruption, immutable
+  wavetable/voice lifetimes, retired-layout tails, convolver ownership, UI/audio
+  command lifetimes, coupler/key ownership and preservation of invalid/custom
+  user data. See the [addressed findings and test evidence](issues.md).
+  These repairs do not close every hardware or performance acceptance gate.
+- **Latest native evidence:** the [October 20–21 VIM4 audit](docs/PERFORMANCE_REGRESSION_AUDIT_2026-10-20.md)
+  records 24 matched offline runs and 2/2 native CTest passes. At 44.1 kHz / 512,
+  current three-worker rendering sustained 1003 voices in about 5.28–5.30 ms,
+  without sustain deadline misses in that workload. Initial attacks still missed
+  deadlines. The inspected failing launch was serial with a 512-entry pool;
+  this is not a validated clean 1024-voice playing profile.
+- **Open reliability work:** restore/verify the intended live launch configuration,
+  close remaining attack-time headroom/cold-start checks and real-device acceptance.
+  PERF-09's retired-layout fallback is now fixed and regression-tested; see
+  [stage 0 progress](docs/STAGE_0_RELIABILITY_2026-10-21.md). That fix does not
+  explain a fresh-launch failure. Meter thresholds remain provisional.
+- **Not implemented:** selectable algorithmic reverb; runtime stereo-pair,
+  crossover and stop routing; application-level MIDI reconnection policy; the
+  proposed touch gestures/redesign; portable hardware profiles, protected installer
+  controls and verified one-button cold startup. The eight-mono-bus build is not
+  configurable stereo-pair routing.
+- **Deferred choices:** Qt/QML or backend replacement, additional SIMD libraries,
+  automatic app restart and onset staggering. Staggering still needs the measured
+  evidence and explicit approval in section 14.3; an attack miss alone does not
+  authorize it.
 
 ## 1. Project goals
 
@@ -45,17 +59,123 @@ The October 18 hardware results have not been rerun for the October 19 safety in
 - Improve full-registration clarity using flexible stop/rank assignments and/or frequency-based speaker routing.
 - Optimize for predictable real-time audio, fast startup, and minimal background activity.
 - Keep changes portable across x86-64 and ARM64 Linux and avoid disrupting unrelated existing functionality.
+- Configure features from detected hardware/backend capabilities and saved user preferences. Board names identify measured examples, not fixed worker counts, CPU IDs, voice limits or feature eligibility.
+- Start new installations with a conservative 128-pipe-voice, serial-rendering profile, then let users configure and validate higher capacity on capable hardware. Include the Raspberry Pi 3B as a compatibility target; modest throughput must not exclude a device from consideration.
 
 ## 2. Candidate hardware and allocation
 
-| Device | CPU | Current consideration |
-|---|---|---|
-| Microsoft Surface Pro 4 | Intel Core i5-6300U, 2 cores / 4 threads | Debian 13 installed; integrated touchscreen and analog audio; strong initial test platform |
-| Khadas VIM4 (early version) | Amlogic A311D2, 4 Cortex-A73 + 4 Cortex-A53 | Strong ARM candidate for optimized/multithreaded Aeolus; external audio interface likely |
-| Raspberry Pi 4 | 4 Cortex-A72; 2 GHz overclock under consideration | Portable organ candidate, or solar monitoring |
-| ROCK Pi 4C (RK3399-T) | 2 Cortex-A72 + 4 Cortex-A53 | Lower-priority Aeolus candidate; viable solar monitoring alternative |
+The VIM4 is the current **test platform**. The user also has a Raspberry Pi 4B,
+ROCK Pi 4C and Raspberry Pi 3B and wants compatibility with each, even where only
+modest registrations are practical. Compatibility and maximum polyphony are
+separate acceptance questions. These are development targets, not validated
+support claims or a requirement to meet the VIM4's performance figures.
 
-**Allocation not finalized.** Solar monitoring requires comparatively modest processing but any hardware swap must preserve its display, touchscreen, serial interfaces, storage, power and enclosure compatibility. VIM4 currently has a separate solar-monitoring role, which can be reassigned if beneficial.
+| Device | Role | Validation still required |
+| --- | --- | --- |
+| Khadas VIM4 | Current test platform; existing native audit evidence | Live attack/sustain reliability and effective profile checks |
+| Raspberry Pi 4B | Owned compatibility and performance target | Native build, devices, baseline profile and measured scaling |
+| ROCK Pi 4C | Owned compatibility and performance target | Native build, topology/device checks and measured scaling |
+| Raspberry Pi 3B | Owned compatibility target, including modest registrations | Installed OS/architecture, memory/startup footprint and sustainable baseline |
+| Microsoft Surface Pro 4 | Existing x86-64/touchscreen candidate | Device-specific audio, touch and performance acceptance |
+
+Identify the installed OS, architecture and available memory on each machine
+before selecting a build. Current Linux artifacts target x86-64 and ARM64; these
+do not establish 32-bit ARM compatibility. If an installed 32-bit OS must be
+supported, track its build, dependencies, SIMD fallback and device tests explicitly.
+Permanent organ/solar-monitor allocation remains a later decision; it does not
+restrict the organ's hardware compatibility targets.
+
+### 2.1 Hardware-aware configuration — agreed 2026-10-21
+
+**Status: planned shared foundation (stage 1A).** The candidate machines above
+are compatibility/test targets, not a list of hardware allowed to use Aeolus features. Existing
+SIMD dispatch and explicit renderer environment controls are implemented; automatic
+hardware profiles and the settings workflow below are not yet implemented.
+
+- Detect capabilities rather than select behavior by board/model name: available
+  CPUs and process affinity restrictions, physical cores/SMT and heterogeneous
+  capacity where discoverable, supported SIMD, memory, audio devices/channels,
+  supported rates/buffers, MIDI devices and display/touch characteristics. Report
+  unavailable information instead of guessing a topology or performance rating.
+- Offer **Automatic**, **Custom** and **Restore Defaults**. Automatic proposes a
+  conservative configuration from available capabilities and measured profiles.
+  Fresh installations start from section 2.2's 128-voice serial baseline; higher
+  settings are recommendations to test and apply, not automatic increases based
+  solely on detected hardware. Core count alone does not determine clean capacity. Allow
+  a serial configuration, a CPU usage limit and explicit worker/core overrides.
+  Preserve resources for audio-device servicing, MIDI, UI, OS and safety recovery.
+- Keep hardware detection, profile storage and settings validation shared across
+  the supported platforms, with small adapters for OS-specific operations. Feature
+  availability follows both hardware and backend support. Existing multicore and
+  independent supervision remain Linux-specific until other implementations are
+  delivered and tested; a profile cannot enable an unsupported backend.
+- Store desired user settings separately from detected capabilities and effective
+  applied settings. Show the actual renderer, worker count, pool/logical cap,
+  device/rate/buffer, affinity and policy failures, including why fallback occurred.
+  Preserve explicit environment controls as advanced overrides and show their
+  contribution to the effective configuration.
+- Reuse profiles by compatible capabilities and stable device identities; revalidate
+  them on startup/device changes. On a different machine or restricted CPU set,
+  remap only unambiguous choices and report adjustments. Do not blindly copy CPU
+  numbers, IRQs, device enumeration indices or a measured capacity between hosts.
+  Preserve the original saved profile and custom organ data through fallback.
+- Offer an optional setup benchmark to recommend worker count, voice headroom and
+  buffer choices from attacks, sustain, releases and wet/dry registrations. Record
+  software, hardware and workload identity. Run it outside normal performance with
+  explicit safe test-output handling; recommendations remain editable and do not
+  establish universal limits for every registration or backend.
+- Apply user-space settings outside callbacks, label required audio/app restarts,
+  and offer rollback. Keep privileges separate: ordinary hardware settings and
+  profiles should work without installing the later appliance administrator helper.
+  Unsupported governor/IRQ/priority controls are explained in the UI.
+- Adapt output-pair availability, display layout and input controls to detected
+  devices. Keep reverb selection, registrations, timbre and audible tails under
+  user control; changing hardware or observing overload must not silently change
+  sound quality, drop pipes, truncate tails or switch reverb algorithms.
+
+**Examples only:** the measured VIM4 setup used three workers on identified A73
+cores with a 1024-entry startup pool. Another machine may run best with fewer or
+more workers, no affinity, or serial rendering. Its settings must be discovered,
+configured and measured independently. This roadmap revision does not change
+current runtime defaults or claim these automatic choices already exist.
+
+### 2.2 Conservative base installation and configurable scaling — agreed 2026-10-21
+
+**Status: planned default/profile change, not yet implemented.** The current
+runtime already defaults to serial rendering but allocates a 512-entry voice
+pool. The proposed base profile below lowers the startup allocation as well as
+its logical admission cap; changing only a meter/menu limit would not do that.
+
+| Setting | Proposed fresh-install baseline | Configurable expansion |
+| --- | --- | --- |
+| Pipe voices | 128-entry physical pool and 128 logical cap | Explicitly select a supported pool/cap after checking memory and workload |
+| Voice rendering | Serial; one synthesis-rendering thread, no DSP-team workers | Opt into grouped rendering and additional workers where supported and measured |
+| Core placement | Normal OS scheduling, no fixed CPU IDs or requested FIFO | Optional validated affinity/priority controls from detected capabilities |
+| Outputs | Original stereo path on a compatible device | Additional pairs after runtime routing is implemented and the device supports them |
+| Reverb and timbre | Preserve user-selected sound and existing stereo behavior | User selects available reverb modes; no automatic quality reduction |
+
+- Interpret “single core” as serial pipe-voice synthesis. Audio/device handling,
+  UI, MIDI, convolution and independent safety may still need background threads;
+  do not force the entire application and its recovery mechanisms onto one CPU.
+- Keep initial setup and runtime overhead modest. Measure model/wavetable memory,
+  IR storage, UI/background activity and startup cost as well as the voice pool;
+  128 voices alone does not establish a low-memory installation or clean audio.
+- Let users raise or lower voice capacity and choose worker count for their
+  device. Prepare memory changes outside processing, show required restart/apply
+  steps, retain note-off/Panic handling and finish audible tails. A selected cap
+  remains a pipe-voice count, not a count of simultaneous keys.
+- Preserve existing saved profiles, explicit environment overrides, registrations
+  and custom organ files when introducing this default. Apply the 128/serial
+  baseline to new installations or an explicit reset; do not silently downgrade
+  a working higher-capacity setup during an update.
+- Offer measured recommendations through Automatic/setup testing, with user
+  confirmation before increasing resources. Keep Custom controls available.
+  Test the baseline first on each target, including Pi 3B, then record practical
+  smaller or larger profiles. Even the starting 128-voice target needs real-device
+  validation; do not promise identical polyphony on all machines.
+- Additional capacity must come from available compute/memory and sound-preserving
+  improvements. Keep complete-note admission, release tails and spatial sound;
+  overload must not silently remove mixture ranks or substitute lower-quality DSP.
 
 ## 3. Standalone Linux appliance
 
@@ -77,6 +197,56 @@ The October 18 hardware results have not been rerun for the October 19 safety in
 - Prevent or recover from stuck notes on disconnect or interrupted MIDI streams.
 - Preserve stop/piston/program-change and other Aeolus MIDI control functions.
 - Consider saved startup registration and safe all-notes-off recovery.
+
+### 4.1 MIDI configurator and learn assignments — requested 2026-10-23
+
+**Status: planned (stage 7D).** Add configurable element-level MIDI assignments
+alongside the existing channel/CC controls.
+
+- With a mouse connected, right-click a controllable element such as an individual
+  stop, coupler or Panic button to open its assignment menu. Select the physical
+  button/switch type and intended action, then press or activate the control on
+  the MIDI device to learn its assignment.
+- Support toggle actions and paired on/off actions, including momentary behavior
+  analogous to note-on/note-off. Exact supported MIDI messages, switch types,
+  value ranges and release semantics will be specified during feature design.
+- Consider making this part of Setup mode: tapping an element on the touchscreen
+  would open the same assignment workflow there. Ordinary performance taps must
+  retain their normal action; the Setup-mode interaction is still a design option.
+- Reuse stage 7A's stable device identity/mappings and stage 7B's setup navigation.
+  Show the target and learned action, allow cancellation/reassignment, and preserve
+  saved assignments when devices disappear or the organ is edited. Do not silently
+  retarget a mapping to a different stop or division.
+- Define safe learn/confirmation behavior for controls such as Panic so capturing
+  a switch assignment does not accidentally execute its performance action.
+
+### 4.2 Configurable crescendo pedal — requested 2026-10-23
+
+**Status: planned (stage 7D); further specification to follow.**
+
+- Add a pedal-controlled crescendo that turns division stops on and off in a
+  configurable sequence, with a configurable number of steps from **10 to 50**.
+- The configurator must read the active organ's division names and all stops in
+  each division and populate its selection lists from those definitions. Refresh
+  after organ edits while preserving valid choices and reporting missing targets.
+- Use the MIDI configurator for pedal assignment. Keep crescendo registration
+  control distinct from swell/expression level control.
+- Defer detailed rules for pedal-to-step mapping, ascending/descending sequences,
+  manual stop changes, presets, startup/reset and restoration of registrations
+  until the fuller specification is agreed.
+
+### 4.3 Assignable swell controls — requested 2026-10-23
+
+**Status: planned (stage 7D); exact behavior to be determined during implementation.**
+
+- Provide up to **three swell controls**, with individual divisions assignable to
+  each control. Reuse the MIDI configurator for pedal/controller assignment.
+- Existing CC 7 and division `swell`-flag handling is a foundation, not completion
+  of this configurable three-control system.
+- Defer response curves, expression range, whether a division can belong to more
+  than one control, interaction with master volume/existing CC 7, and startup
+  behavior until feature design. Preserve current behavior for existing organs
+  unless the user explicitly configures the new controls.
 
 ## 5. Audio baseline and interface choices
 
@@ -138,15 +308,31 @@ The October 18 hardware results have not been rerun for the October 19 safety in
 - Crossfade or otherwise smoothly transition routing/filter changes to avoid clicks.
 - Persist settings and provide user-selectable output profiles.
 
+### 7.1 Custom mixture editor — requested 2026-10-23
+
+**Status: planned (stage 7E).** Existing compound stops and embedded component
+voices/ranks are a synthesis foundation; a dedicated mixture editor is new work.
+
+- Expose the available embedded harmonic/component voices used by mixtures so
+  users can edit an existing mixture or build a custom mixture from them.
+- Provide a custom mixture definition that can be saved and used as an organ
+  stop, preserving the original embedded resources and user-created definitions.
+- Specify the component-selection, pitch/footage, keyboard-zone/break and balance
+  controls before implementation. Confirm which existing resources and stop-model
+  fields can be reused rather than treating every component as a new timbre.
+- Retain complete mixture voice accounting, audible tails and safe publication
+  during edits. Check save/reload, invalid definitions and reference rendering;
+  creating new underlying pipe voices belongs to the later stage 9 builder.
+
 ## 8. Processing and benchmarking
 
-- Establish baseline on Surface Pro 4 (Debian 13), VIM4, Pi 4, and optionally Rock Pi.
+- Establish the conservative baseline on the VIM4 test platform, Raspberry Pi 4B, ROCK Pi 4C, Raspberry Pi 3B and Surface Pro 4 where available; measure higher-capacity profiles separately.
 - Test reproducible registrations and active pipe-voice counts (e.g. 50/100/200/300+), both reverb on and off.
 - Measure mean/peak audio callback time, xruns, active voices, CPU core utilization/frequency, thermal throttling, and startup time.
-- Compare Pi 4 at stock 1.8 GHz and intended 2.0 GHz only after confirming stable clock/cooling.
-- Current engine's division/voice rendering is largely serial; explore fixed, persistent real-time DSP worker threads, division-level parallelism first, then voice chunking only if warranted.
+- Begin at each board's actual supported stock configuration. Any overclock experiment is optional and requires separate stability/cooling measurements; compatibility must not depend on overclocking.
+- Linux stereo builds already have opt-in persistent grouped voice workers; unset `AEOLUS_DSP_WORKERS` retains serial rendering. Verify effective worker execution and compare serial/grouped timings. Non-Linux worker support and further load-balancing changes remain unvalidated work.
 - Avoid generic thread pools, thread creation, heap allocation, or mutex blocking inside audio callbacks.
-- On VIM4, evaluate using A73 cores for heavy real-time work and A53 cores for background tasks; validate scheduling rather than assume affinity is automatically optimal.
+- Evaluate worker placement from the detected topology and actual scheduling/USB behavior. VIM4 A73/A53 placement is one measured example; do not assume equivalent clusters or CPU numbering on other machines.
 - Inspect and benchmark existing x86 SSE/AVX/FMA code paths and potential ARM NEON optimizations.
 - Do not claim hardware-specific performance without measured results.
 
@@ -173,13 +359,302 @@ The October 18 hardware results have not been rerun for the October 19 safety in
 
 ## 11. Implementation phases
 
-1. **Baseline:** Build/run current standalone on candidate Linux hardware, verify USB MIDI and two-channel audio, instrument performance.
-2. **Audio abstraction:** Runtime channel-count detection, stereo fallback, persistent device/output profiles, pair-level routing framework.
-3. **Frequency routing:** Add shared crossover/filter processing, safe complementary routing, gains, delay/polarity, and calibration tools.
-4. **Stop routing:** Introduce stop/rank-aware stereo bus routing before irreversible mixing; UI assignments and saved presets.
-5. **Reverb routing:** Preserve stereo convolution, then add flexible multichannel dry/wet buses and optional external processing.
-6. **Performance:** Implement measured multicore/NEON optimizations as needed; retest on all platforms.
-7. **Appliance polish:** Minimal Linux services, auto-start, MIDI hotplug/recovery, touchscreen usability, boot optimization. Include the in-app installer, persistent system profiles, limit meters and cold-start acceptance gates in [section 16](#16-installer-setup-hardware-profiles-and-one-button-startup--agreed-2026-10-18); performance-phase scheduling controls must integrate with that setup model.
+**Status convention:** `[x]` means the named implementation or check exists with
+linked evidence, within its stated scope. `[ ]` means remaining work, including
+hardware acceptance of implemented code. **Partial** stages have completed work
+but open exit gates. No stage below is fully accepted on all target hardware.
+
+Stage numbers 1–7 retain the original phase IDs used by the research in section
+15. Stage 0 adds the current reliability closeout; stage 8 collects release gates.
+The October 23 additions extend stage 7 with musical controls and mixture editing;
+stage 9 is the final, later voice-authoring project. These additions are planned
+requirements, not implementation claims.
+Performance is a continuing workstream, not something postponed until stage 6.
+
+| Stage | Deliverable | Current status | Dependency / exit gate |
+| --- | --- | --- | --- |
+| 0 | Reliable existing organ and safety controls | Partial; repairs and PERF-09 fix implemented | Live launch/attack and other device checks remain |
+| 1 | Reproducible audio and hardware baseline | Partial; harness and VIM4 dry measurements exist | Wet/live tests and target-device matrix remain |
+| 1A | 128-voice serial base, hardware detection and user profiles | Planned shared foundation | Stage 0; capability validation, safe fallback and effective-settings display |
+| 2 | Runtime output capabilities, profiles and stereo fallback | Planned | Stage 1A profile foundation; verify physical 2/4/6/8-channel mapping |
+| 3 | Frequency routing and speaker calibration | Planned | Stage 2; complementary sums and click-free transitions |
+| 4 | Stop/rank routing | Planned | Stage 2; preserve stereo placement and single synthesis |
+| 5A | Off / Algorithmic / Convolution reverb | Planned; convolution foundation implemented | Can start after stage 0 and baseline capture; does not require multichannel |
+| 5B | Multichannel dry/wet routing | Planned | Stage 2; integrate with stage 3 speaker processing |
+| 6 | Measured SIMD/multicore optimization | Partial; Linux workers and ARM kernels implemented | Repeat quality/deadline gates after each relevant change |
+| 7A | USB-MIDI recovery | Partial; ordinary MIDI controls exist | Device identity, disconnect/reconnect and notes-off tests |
+| 7B | Touchscreen performance UI | Partial; existing editors/console available | Gesture/layout implementation and physical panel tests |
+| 7C | Privileged installer and cold startup | Planned; user profiles belong in stage 1A | Reuse stage 1A; privileged rollback/cold-boot gates |
+| 7D | MIDI configurator, crescendo and up to three swell controls | Planned; detailed pedal behavior open | Shared device mappings/setup UI; sections 4.1–4.3 and control/registration safety |
+| 7E | Custom mixture editor | Planned | Existing component inventory, safe stop/model editing and agreed mixture controls |
+| 8 | Packaging and release acceptance | Partial; notices and packaging tooling exist | Selected features pass target-hardware and distribution checks |
+| 9 | Voice builder/editor, potentially a separate program | Planned final roadmap stage | Stage 7E/model compatibility; authoring specification and delivery form TBD |
+
+**Suggested execution order:** close stage 0 and the baseline gaps first; deliver
+1A hardware detection/user profiles before new features depend on machine settings;
+then 5A for stereo algorithmic reverb and 2 → 3, followed by 4 and 5B. Continue stage
+6 measurements throughout. MIDI recovery and touch work can be separate bounded
+increments after the reliability baseline. Add 7D's MIDI learn foundation before
+its crescendo/swell controls; 7E mixture editing can follow the model-editing
+foundation independently of multichannel routing. Integrate installer/startup
+before completing stage 8 for the selected release. Keep stage 9 voice authoring
+at the end as later work, potentially a separate program; apply the relevant
+stage 8 release checks to it as well. This is a proposed sequence, not approval
+to adopt the research libraries or implement all stages in one change.
+
+### Stage 0 — Reliability and safety closeout — partial, next priority
+
+- [x] Implement the memory, voice/model lifetime, MIDI/coupler, state and UI-owner
+  repairs listed as addressed in [issues.md](issues.md); retain their regression tests.
+- [x] Implement whole-note/held-registration admission, persistent logical limits,
+  rejection diagnostics, audio/voice bars, Panic/Resume and independent Linux safety.
+- [x] Fix PERF-09 with callback-safe render-list handling and a permanent regression
+  test; retain all audible tails and setup-only destruction of retired owners.
+  [October 21 evidence](docs/STAGE_0_RELIABILITY_2026-10-21.md): Release, ASan/UBSan
+  and TSan pass; four ordinary reference exports remain byte-identical.
+- [x] Verify the live VIM4 renderer/device configuration: three workers, 1024 pool,
+  direct FiiO at 44.1 kHz / 512, explicit measured core placement and normal scheduling.
+  A user-applied performance-governor comparison restored a short audible test at
+  about 1000 voices without breakup. This is one hardware case, not a global default
+  or zero-miss certification; see [capture limits](docs/STAGE_0_RELIABILITY_2026-10-21.md).
+- [ ] Profile and resolve simultaneous attack misses without dropping pipes,
+  shortening tails, reducing quality or introducing unapproved onset spreading.
+- [ ] Complete the outstanding real-device, MTS, editor/save-restart, timbre and
+  durability checks listed in [issues.md](issues.md).
+
+**Exit:** repeatable dense attacks, sustain, releases and Panic on the selected
+live device/profile, with recorded deadlines/xruns and listening results; no open
+blocking correctness defect. Offline sustain timing alone does not close this stage.
+
+### Stage 1 — Repeatable baseline and validation — partial
+
+- [x] Add isolated deterministic render/regression fixtures with MIDI offsets,
+  repeated notes, couplers, releases, overflow and callback/worker allocation checks.
+  See [tests/AudioTests.cpp](tests/AudioTests.cpp) and its included regression suites.
+- [x] Add offline engine/spatial benchmarks, uncapped callback telemetry and analysis
+  tools. See [ARM measurement notes](docs/ARM_OPTIMIZATION.md) and
+  [tools/analyze_callback_profile.py](tools/analyze_callback_profile.py).
+- [x] Record matched serial/grouped/three-worker dry comparisons on local x86-64
+  and VIM4 at 44.1 kHz / 512; retain actual voice counts, p50/p99/worst and misses in
+  the [performance audit](docs/PERFORMANCE_REGRESSION_AUDIT_2026-10-20.md).
+- [ ] Establish reference renders/listening for dense wet and dry registrations,
+  independent repeated onsets, registration changes and realistic live MIDI.
+- [ ] Complete the intended 44.1/48 kHz, 256/128-frame matrix, physical latency,
+  native xruns, long-run thermals, memory and startup measurements. The 512-frame
+  audit is a starting point, not completion of the smaller-buffer target.
+- [ ] Test the 128-voice serial baseline on Pi 4B, ROCK Pi 4C, Pi 3B and Surface
+  Pro 4 where available, then measure optional higher-capacity profiles. Record OS
+  architecture, memory/startup cost and practical limits; desktop/CI results do
+  not validate these boards.
+
+**Exit:** versioned workload/reference definitions and reproducible measured profiles
+for each supported device, including quality and sustainable playing limits.
+Tracy/Google Benchmark remain optional research; existing instrumentation does not
+require adopting them.
+
+### Stage 1A — Hardware capabilities and user profiles — planned, early foundation
+
+- [ ] Implement section 2.1's capability model with OS/backend adapters and a
+  conservative fallback for unknown hardware or unavailable controls.
+- [ ] Deliver section 2.2's fresh-install 128-entry pool/cap and serial profile,
+  keeping existing saved/explicit configurations intact. Verify first-run, reset,
+  upgrade preservation and off-callback application/restart behavior.
+- [ ] Add Automatic/Custom/Restore Defaults and saved user profiles for renderer,
+  worker count, CPU use/placement, startup voice pool/logical cap and audio/MIDI
+  preferences. Keep desired settings, effective settings and override sources visible.
+- [ ] Add validation/apply/restart/rollback handling outside processing. Do not require
+  the stage 7C privileged helper for ordinary user-space configuration.
+- [ ] Add optional setup measurements and editable recommendations; preserve selected
+  reverb/timbre and sounding voices when detecting overload or changed hardware.
+- [ ] Test heterogeneous and uniform CPUs, SMT, constrained CPU sets, unknown
+  topology, unsupported affinity/scheduling, missing devices and profile migration.
+
+**Exit:** the same configuration workflow starts conservatively and can scale on
+supported x86-64 and ARM64 systems, including the smaller-board compatibility
+targets, without hard-coded board/core assumptions; incompatible settings fall back
+with an explanation while the saved profile survives. Validate on available hosts
+and simulated capability sets; name actual hardware coverage separately.
+
+### Stage 2 — Runtime output framework and profiles — planned
+
+- [ ] Discover usable output channels and support one to four configurable stereo
+  pairs; validate real physical channel order and unsupported-device behavior.
+- [ ] Preserve original spatialization/convolution with one active pair; make pair
+  1 as configurable as other pairs when multiple pairs are active.
+- [ ] Save requested device/output profiles separately from effective fallback;
+  retain multichannel settings on a stereo device and restore them on return.
+- [ ] Prepare routing outside processing, publish with safe ownership, and smooth
+  routing/device transitions with bounded recovery and no callback allocation.
+
+**Exit:** 2/4/6/8-channel device tests, fallback/restore and saved-profile round trips.
+The existing compile-time eight-mono-bus mode does not complete these tasks.
+
+### Stage 3 — Frequency routing and calibration — planned
+
+- [ ] Add mixed-bus high/low/band routing, independent pair settings and practical
+  crossover controls; evaluate LR4 without selecting a new dependency prematurely.
+- [ ] Validate complementary two-, three- and four-way electrical sums and phase
+  alignment; preserve left/right independence and the original single-pair path.
+- [ ] Add per-pair gain, delay, polarity, mute/solo and filter bypass, with smooth
+  changes and safe-level pink-noise/sweep tests.
+- [ ] Verify physical speakers/receiver mapping and acoustic alignment separately
+  from electrical filter tests; save/revert calibration settings.
+
+**Exit:** measured crossover sums, channel mapping and safe transitions on hardware.
+
+### Stage 4 — Stop/rank routing — planned
+
+- [ ] Route suitable stop/group intermediates before irreversible stereo mixing;
+  retain the pipe's spatial image and synthesize each pipe only once.
+- [ ] Support a stop feeding multiple pairs with independent gains, including
+  mixture/compound-stop semantics and bounded precomputed destinations.
+- [ ] Add assignment UI and saved routing presets, migration/fallback and round trips.
+
+**Exit:** deterministic/reference renders, routing changes under dense load and
+physical output checks. Hybrid stop-plus-frequency rules remain a later extension.
+
+### Stage 5 — Reverb modes, then wet routing — partial foundation
+
+**5A: stereo reverb modes**
+
+- [x] Retain stereo convolution and wet-zero bypass; implement prepared IR changes,
+  device-rate resampling, crossfades and safe worker/result ownership.
+  See [reverbswitch](Source/aeolus/dsp/reverbswitch.h) and
+  [convolution regression tests](tests/ConvolutionOwnershipTests.h).
+- [ ] Select/audition an algorithm after checking its exact source/license and
+  comparing sustained bass, mixtures, tails and worst-case cost on target hardware.
+- [ ] Implement the explicit Off / Algorithmic / Convolution selector, separate
+  mode settings/presets and supported controls from section 14.1. Wet zero alone
+  is not the requested mode selector.
+- [ ] Test switching, automation/parameter smoothing, denormals, device-rate changes
+  and long-IR late-worker fallback cost; perform listening comparisons.
+
+**5B: multichannel dry/wet routing, after stage 2**
+
+- [ ] Add independent dry/wet assignments and optional dedicated wet pairs; keep
+  reverb separate from crossover/EQ/delay and avoid full-strength duplication.
+- [ ] Preserve mode/profile settings during stereo fallback and hardware return.
+
+**Exit:** credible, measured stereo algorithmic reverb first; accept multichannel
+wet routing separately after its output/profile checks.
+
+### Stage 6 — Performance workstream — partial, already underway
+
+- [x] Implement existing x86 dispatch corrections, ARM64 NEON arithmetic/spatial
+  kernels and scalar reference switches; retain numerical comparison tests.
+- [x] Add optional Release IPO, bounded readable-ring clears and deterministic
+  grouped jobs with persistent Linux stereo workers and explicit scheduling knobs.
+- [x] Compare historical/current VIM4 source with matched workloads. The latest
+  audit supports the launch-mode explanation and does not show a large net sustain
+  regression; it still records attack misses and higher current attack p99 values.
+- [ ] Profile admission/graph work, voice traversal, clears, spatialization and
+  reverb fallback; optimize only demonstrated costs and verify reference output/tails.
+- [ ] Use the shared stage 1A profiles to establish measured settings/headroom for
+  each host and intended buffer; verify USB/IRQ continuity, thermals and effective
+  worker execution. Keep board-specific presets optional and editable.
+- [ ] Validate any future non-Linux worker implementation independently. Additional
+  SIMD libraries, scheduling changes or quality profiles require their own evidence.
+
+**Exit per increment:** sound-preserving comparisons, uncapped timing and actual
+live-device reliability; never treat a configured voice pool as measured capacity.
+
+### Stage 7 — Portable instrument and appliance — split into bounded increments
+
+**7A: USB-MIDI continuity — partial**
+
+- [x] Provide device enablement and configurable division/control channel settings,
+  existing CC/program/registration controls and queue-overflow recovery.
+- [ ] Add stable device identity/mappings, disconnect notes-off handling, bounded
+  rediscovery/reconnect and startup handling; test duplicate devices and changed ports.
+- [ ] Verify multiple controllers/up to six logical MIDI channels under audio load;
+  reconnection must not restore held notes. Existing enumeration is not this policy.
+
+**7B: touchscreen console — partial existing UI, redesign planned**
+
+- [x] Provide division/stop/coupler editors, presets, remembered window size,
+  hideable keyboard, performance bars and globally reachable Panic/Resume.
+- [ ] Implement and test enlarged controls/menus, clear non-color state indicators,
+  responsive 10–14-inch layouts and fullscreen where supported.
+- [ ] Add optional drag-to-set stops with one intended state per gesture, visited-stop
+  tracking, cancellation and mouse/keyboard compatibility.
+- [ ] Add separated performance/setup navigation and configurable feature visibility;
+  compare a JUCE improvement with any optional Qt prototype before selecting a rewrite.
+
+**7C: installer and cold startup — planned**
+
+- [ ] Implement section 16's in-app setup, administrator authentication and narrowly
+  scoped helper, privileged system-policy application, restart labels and rollback.
+  Reuse stage 1A topology/device profiles rather than adding a separate board-specific
+  configuration path.
+- [ ] Verify approved CPU/USB IRQ policy, independent recovery and device/profile
+  restoration across startup/hotplug; keep normal performance unprivileged.
+- [ ] Install/test startup integration, backup/reset/uninstall and repeated one-button
+  cold boots; measure boot-to-play with changed/missing hardware.
+
+**Exit:** physical touch/MIDI tests plus section 16.5's cold-start and installer gates.
+Automatic app restart remains deferred; the existing watchdog is not an installer.
+
+**7D: MIDI configurator and pedal registration/expression — planned**
+
+- [ ] Implement section 4.1's right-click MIDI learn menu for individual controls,
+  switch/action selection, toggle and paired on/off behavior, and saved mappings.
+  Decide whether Setup-mode touchscreen taps share that workflow.
+- [ ] Specify and implement section 4.2's crescendo pedal, **10–50 configurable
+  steps**, and configurator lists populated from all active divisions/stops.
+- [ ] Specify and implement section 4.3's **up to three assignable swell controls**
+  with configurable division membership; preserve existing organ/controller behavior.
+- [ ] Test mouse/touch setup, learn cancellation, device loss/reconnection, organ
+  edits, save/restart, manual registration interactions, releases and Panic.
+
+**7E: custom mixture editing — planned**
+
+- [ ] Inventory the embedded mixture component voices/ranks and agree the editor
+  controls in section 7.1; distinguish mixture composition from new voice synthesis.
+- [ ] Build/edit custom mixtures from available components, save them as user
+  definitions and make them available as stops without overwriting originals.
+- [ ] Validate composition/zones, whole-mixture voice admission, safe edit
+  transitions, preserved tails and save/reload under realistic registrations.
+
+**Additional exit gates for 7D/7E:** agree the deferred musical behavior before
+implementation; validate assignments and custom definitions through organ edits,
+controller changes and restarts. These increments do not require adopting a new UI
+framework or waiting for the privileged installer.
+
+### Stage 8 — Release and distribution acceptance — partial tooling
+
+- [x] Document bundled recording/stop-model provenance and retain license/notice
+  files; provide Linux packaging tooling for matched source, notices and checksums.
+  See [asset notices](docs/ASSET_NOTICES.md) and [packager](tools/package_linux.py).
+- [ ] Complete remaining dependency/asset/optional-SDK checks for the chosen target
+  and verify the exact distributable against the [distribution checklist](docs/DISTRIBUTION_CHECKLIST.md).
+- [ ] Exercise the final production build (tests/profilers disabled), rebuild from
+  delivered source, verify adjacent Linux safety helpers and test install/rollback.
+- [ ] Publish only the platforms, audio devices, buffers and feature combinations
+  actually validated. Keep unsupported plugin formats and experimental renderers
+  outside release claims.
+
+**Exit:** reproducible, reviewed release materials and target-device acceptance;
+notice documents, CI configuration and a successful build alone do not close it.
+
+### Stage 9 — Voice builder/editor — planned final roadmap stage
+
+**Requested 2026-10-23; detailed specification and delivery form deferred.** This
+stage is at the end of the roadmap and may be delivered as a separate program.
+
+- [ ] Design a builder/editor that can create new pipe voices and edit custom
+  voices, beyond assembling existing components into mixture stops.
+- [ ] Decide the authoring controls, preview/audition workflow, model format and
+  import/export integration with Aeolus. Evaluate an in-app editor versus a
+  separate companion program before choosing either approach.
+- [ ] Preserve supplied voices and custom organ data; validate generated models
+  and prepare synthesis data outside audio callbacks. Keep authoring workload
+  compatible with the intended host, or separate it from live performance.
+- [ ] Test new voices through save/reload, tuning, pitch range, attacks, sustain,
+  releases and mixtures; retain provenance and apply relevant stage 8 release gates.
+
+**Exit:** an agreed authoring specification and validated creation/edit/export
+workflow whose voices load and play correctly in Aeolus. No new synthesis model,
+external dependency or standalone companion implementation is selected by this entry.
 
 ## 12. Open questions / decisions deferred
 
@@ -191,6 +666,11 @@ The October 18 hardware results have not been rerun for the October 19 safety in
 - Specific stop/rank routing rules, especially mixtures and compound stops.
 - Reverb strategy for >2 channels, including dedicated wet outputs or multichannel convolution.
 - Which settings should be global device profiles versus saved per-organ registrations.
+- Crescendo step/pedal behavior and interactions with manual stops/presets; fuller specification to follow (section 4.2).
+- Swell response, division-sharing rules and interaction with existing volume controls (section 4.3).
+- MIDI learn message/switch semantics and whether touchscreen assignment is activated through Setup mode (section 4.1).
+- Exact custom-mixture controls and reuse of embedded component resources (section 7.1).
+- Voice-builder controls, model interchange and in-app versus separate-program delivery (stage 9).
 
 ## 13. Working agreements
 
@@ -209,6 +689,10 @@ The October 18 hardware results have not been rerun for the October 19 safety in
 
 ### 14.1 Algorithmic reverb — committed feature
 
+**Status, October 21:** planned (stage 5A). Existing convolution transitions and
+wet-zero bypass are implemented; the three-mode selector and algorithmic engine
+are not. See section 11 for the implementation/acceptance split.
+
 - Add selectable **Off / Algorithmic / Convolution** reverb modes. Retain current convolution reverb and impulse-response compatibility for users with adequate compute.
 - Implement a low-cost, high-quality algorithmic reverb (evaluate feedback delay networks and appropriate diffusion/early-reflection designs), with adjustable RT60, pre-delay, room size, early-reflection level, diffusion, damping, frequency-dependent decay, wet/dry balance, and stereo width; expose modulation controls only if justified by the algorithm.
 - Keep each engine's settings and presets separate; avoid clicks when switching modes. Preserve the original stereo spatialization and pipe sound.
@@ -216,6 +700,10 @@ The October 18 hardware results have not been rerun for the October 19 safety in
 - Benchmark algorithmic vs convolution CPU cost, tail quality, latency, and clarity under dense registrations. Do not claim that algorithmic reverb always outperforms convolution without measurement.
 
 ### 14.2 Performance optimization workstream
+
+**Status, October 21:** partial (stages 1 and 6). Instrumentation, ARM kernels,
+bounded clears and Linux workers exist. The numbered list retains the requirements;
+completed components and remaining measurements are tracked in section 11.
 
 1. Add low-overhead instrumentation and offline deterministic render/quality comparisons before changing the DSP.
 2. Verify Release compiler flags, scalar fallback and existing x86 SIMD dispatch. Evaluate compiler auto-vectorization and implement/test ARM64 NEON paths for mixing, vector arithmetic, complex multiply, FFT and other demonstrated hotspots.
@@ -242,7 +730,7 @@ The October 18 hardware results have not been rerun for the October 19 safety in
 - Original stereo/convolution configuration remains available and regression-tested.
 - Algorithmic reverb sounds credible on sustained organ tones and dense chords, with no audible zipper noise during parameter changes.
 - Optimized renders match reference output when operating in sound-preserving modes, within appropriate numerical tolerance; no lost notes or truncated tails.
-- Measured increases in sustainable pipe count at a defined sample rate, buffer size and maximum deadline-miss rate, reported for Surface i5, VIM4, Pi 4 and Rock Pi where available.
+- Measured increases in sustainable pipe count at a defined sample rate, buffer size and maximum deadline-miss rate, reported for Surface i5, the VIM4 test platform, Pi 4B, ROCK Pi 4C and Pi 3B where available. Record usable smaller profiles as well as maximum counts.
 - If the deferred onset-staggering experiment is ever implemented, it must be bounded, repeatable, disableable, and shown to improve measured attack-time spikes without audible degradation; worker scheduling delays never masquerade as acoustic realism.
 
 ## Touchscreen UI redesign — proposed phase (2026-10-15)
@@ -266,6 +754,11 @@ The October 18 hardware results have not been rerun for the October 19 safety in
 **Status:** Research recommendations, not implemented features or measured performance results. This addendum preserves all earlier requirements and phases. Priorities below are suggested additions to section 11, not authorization to replace working behavior.
 
 ### 15.1 Verified repository baseline and architecture implications
+
+**Historical snapshot, not current status.** The observations below describe the
+September source; MIDI offsets, uncapped diagnostics and duplicate CMake setup
+were subsequently addressed. Current implementation is tracked in section 11.
+The library shortlist remains dated research, not a refreshed dependency selection.
 
 Reviewed `master` at [2fad8f123758d2d4f1ce4029599bf202f5dc6f34](https://github.com/cmbrodman/aeolus_plugin/commit/2fad8f123758d2d4f1ce4029599bf202f5dc6f34), dated 2026-09-05.
 
@@ -302,10 +795,14 @@ Reviewed `master` at [2fad8f123758d2d4f1ce4029599bf202f5dc6f34](https://github.c
 3. **Phase 2 / P1:** Keep backend interfaces independent of the GUI. Add runtime device capabilities/profiles and safe stereo fallback. If JUCE removal becomes a goal, stage RtMidi plus either RtAudio or direct ALSA behind those interfaces.
 4. **Phase 3 / P1:** Prototype pair-level LR4 routing, gain/delay/polarity and safe test signals. Validate two-, three- and four-way complementary sums, not only separate filter responses. Preserve the original stereo path for one active pair.
 5. **Phase 5 / P1:** Audition zita-rev1 and Signalsmith against current convolution with sustained bass, mixtures, full registrations and parameter changes. Choose on sound and measured worst-case processing cost; retain Off/Algorithmic/Convolution modes and separate settings. Add wet routing independently from speaker filters.
-6. **Phase 6 / P2:** Use profiles to choose xsimd or Highway kernels. Retest scalar/x86/ARM64 quality and realistic pipe counts. Persistent multicore workers remain a separate measured experiment; no generic task framework is recommended for the callback.
+6. **Phase 6 / P2:** Use profiles to choose xsimd or Highway kernels. Retest scalar/x86/ARM64 quality and realistic pipe counts. Persistent Linux stereo workers are now integrated; further renderer experiments remain separate and require measurement. No generic task framework is recommended for the callback.
 7. **Phase 7:** Recheck hotplug, cold boot, fullscreen, setup/recovery and minimal installation only after audio/UI choices stabilize. Hide unused features before considering lean build variants.
 
 ### 15.4 Verification gates before adoption
+
+These broad gates remain open where target hardware, device loss, new algorithms
+or proposed routing are involved. Existing render/sanitizer/ARM test evidence is
+linked in stages 0–1 and 6; it does not satisfy every scenario in a combined gate.
 
 - [ ] Record dependency version/commit, license text, source URL, build flags and transitive dependencies. Prefer packaged/pinned stable versions supported by the target OS; current online Qt documentation may describe APIs newer than Debian's packages.
 - [ ] Build Release for Surface x86-64 and at least one ARM64 target. Confirm scalar fallback and that optional profiler/benchmark targets are absent from production builds.
@@ -351,18 +848,23 @@ kernel dispatch with scalar fallback, corrected CPU checks, and duplicate CMake
 setup removal. The optional `AEOLUS_BUILD_TESTS` target covers these paths with an
 isolated profile. See README for build/test commands and transition tradeoffs.
 
-This increment does not implement algorithmic reverb, configurable stereo pairs,
-MIDI device reconnect policy, ARM NEON, multicore voice rendering or the proposed
-touchscreen redesign. Actual-device xrun, listening and platform checks remain
-necessary; test results are reported with the change rather than inferred here.
+At the time of this October 17 increment, algorithmic reverb, configurable stereo
+pairs, MIDI device reconnect policy, ARM NEON, multicore voice rendering and the
+proposed touchscreen redesign were outside its scope. **Subsequent work implemented
+ARM NEON and opt-in Linux multicore rendering**; the other features remain planned.
+See section 11 for current status. Actual-device xrun, listening and platform checks
+remain necessary; historical test results are not new validation.
 
 
 ## 16. Installer setup, hardware profiles and one-button startup — agreed 2026-10-18
 
-**Status: installer/profile UI, admission controls, meters and persistent startup
-remain planned.** The separate renderer/Panic/watchdog integration is described in
-[README](README.md#integrated-multicore-rendering-and-emergency-recovery); it does not
-implement the setup features below. The isolated VIM4 IRQ-placement
+**Status, October 21: partial foundations; installer/profile UI and persistent
+system startup remain planned.** Logical voice admission, meters and persistent
+cap/threshold preferences in section 16.3 are implemented. Renderer/Panic/watchdog
+integration is described in [README](README.md#integrated-multicore-rendering-and-emergency-recovery).
+These foundations do not implement protected setup or portable system profiles.
+Stage 1A delivers ordinary hardware settings/profiles first; stage 7C adds protected
+system-policy installation and cold startup using that same profile model. The isolated VIM4 IRQ-placement
 experiment informs this design; it is not a persistent installation. See the
 [hang investigation](docs/HANG_INVESTIGATION_2026-10-18.md) for observations and
 validation limits. This section extends phases 6 and 7 without authorizing an
@@ -389,6 +891,11 @@ immediate implementation or changing existing sound-preservation requirements.
   changes outside callbacks, with bounded transitions and recoverable failure.
 
 ### 16.2 Portable CPU, device and safety profiles
+
+Use the shared capability/profile model in section 2.1. Implement user-space
+configuration in stage 1A, including section 2.2's 128-voice serial starting
+profile; add privileged policy and boot persistence in stage 7C. Hardware support
+and administrator access are separate capabilities.
 
 - Detect available/online CPUs and their topology/capabilities on x86-64 and ARM64;
   do not assume VIM4 core numbers, a fixed core count, or performance/efficiency
@@ -477,14 +984,19 @@ requirements below continue to guide those checks.
 
 ### 16.5 Acceptance gates
 
+These are appliance/actual-device gates. Local admission/meter regression tests
+are complete within the scope recorded in stage 0 and section 16.3; they do not
+close live saturation, physical-touch, privileged setup or cold-boot acceptance.
+
 - [ ] Repeated cold boots with unchanged hardware reach playable state without
   operator authentication, terminal commands or manual setup; verify actual
   affinity, MIDI input, physical audio outputs and startup registration.
 - [ ] Reboot/renumber IRQs and device enumeration; reconnect, replace and add MIDI
   devices, including identical models and changed USB ports/hubs. Preserve organs,
   mappings and multichannel profiles; request intervention only where needed.
-- [ ] Validate core selections, worker limits and recovery resources on each tested
-  SBC/CPU layout; repeat saturation/release tests and record callback deadlines,
+- [ ] Validate Automatic/Custom profiles, core selections, worker limits and recovery
+  resources on each tested SBC/CPU layout, including restricted/unknown topologies
+  and migration to different hardware; repeat saturation/release tests and record callback deadlines,
   MIDI continuity, thermals and user-audible results. No blanket SBC support claim.
 - [ ] Exercise voice admission, short/repeated notes, couplers, full registration,
   tails, capacity reduction, rejection indication and Panic at the configured cap.

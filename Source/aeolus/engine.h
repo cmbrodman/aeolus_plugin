@@ -602,7 +602,9 @@ private:
     juce::OwnedArray<Division> _retiredDivisions;
     void retireDivisions();
     int _pedalIndex = -1; // selected during setup
-    std::vector<Division*> _renderDivisions; // rebuilt only during suspended setup
+    // Non-owning, live then retired: setup rebuilds; between batches the callback
+    // prunes empty retired entries without destroying owners or changing capacity.
+    std::vector<Division*> _renderDivisions;
 
     std::unique_ptr<Sequencer> _sequencer;
 
